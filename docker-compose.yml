@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  ffbot:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    command: ["bash", "-lc", "pip install -r requirements.txt && python run.py"]
+    restart: unless-stopped
