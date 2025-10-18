@@ -82,10 +82,36 @@ def _init_sqlite(path: str = "bot.db"):
 def _init_pg(dsn: str):
     conn = psycopg.connect(dsn, **PG_CONN_KW)
     with conn.cursor() as cur:
-        # PG flavor: TIMESTAMPTZ for created_at/order
-        cur.execute(DDL_SUBS.replace("INTEGER", "INTEGER"))
-        cur.execute(DDL_SENT.replace("TIMESTAMP", "TIMESTAMPTZ").replace("CURRENT_TIMESTAMP", "NOW()"))
-        cur.execute(DDL_CACHE.replace("TIMESTAMP", "TIMESTAMPTZ"))
+        # створюємо таблиці прямо у форматі PostgreSQL
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS subscriptions (
+          user_id        BIGINT NOT NULL,
+          chat_id        BIGINT NOT NULL,
+          impact_filter  TEXT   NOT NULL DEFAULT 'High,Medium',
+          countries_filter TEXT NOT NULL DEFAULT '',
+          alert_minutes  INTEGER NOT NULL DEFAULT 30,
+          daily_time     TEXT   NOT NULL DEFAULT '09:00',
+          lang_mode      TEXT   NOT NULL DEFAULT 'en',
+          out_chat_id    BIGINT,
+          PRIMARY KEY (user_id, chat_id)
+        );
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS sent_log (
+          chat_id     BIGINT NOT NULL,
+          ev_hash     TEXT   NOT NULL,
+          kind        TEXT   NOT NULL,
+          created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (chat_id, ev_hash, kind)
+        );
+        """)
+        cur.execute("""
+        CREATE TABLE IF NOT EXISTS events_cache (
+          cache_key  TEXT PRIMARY KEY,
+          payload    TEXT NOT NULL,
+          expires_at TIMESTAMPTZ NOT NULL
+        );
+        """)
     return conn
 
 # keep global single connection (simple & adequate for our light workload)
