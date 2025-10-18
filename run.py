@@ -32,6 +32,10 @@ async def main():
 
     logging.info("Creating bot and dispatcher...")
     bot = await build_bot(BOT_TOKEN)
+    me = await bot.get_me()
+    token_head = (BOT_TOKEN or "").split(":", 1)[0]
+    token_tail = (BOT_TOKEN or "")[-10:]
+    logging.warning(f"BOT DIAG → id={me.id} user=@{me.username} token_head={token_head} token_tail=...{token_tail}")
     dp = build_dispatcher()
 
     # --- очистка webhook ---
