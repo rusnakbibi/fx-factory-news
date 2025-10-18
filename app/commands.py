@@ -72,7 +72,8 @@ async def _send_today(m: Message, subs: dict):
         await m.answer("Today: no events (time window).")
         return
 
-    filtered = filter_events(todays, impacts, countries)
+    cats = csv_to_list(subs.get("categories_filter", ""))
+    filtered = filter_events(events, impacts, countries, cats)
     if not filtered:
         sample = "\n".join(_fmt_event(ev) for ev in todays[:3])
         log.debug(f"[today] filtered out; sample in-window:\n{sample}")
@@ -126,7 +127,8 @@ async def _send_week(m: Message, subs: dict):
         return
 
     # застосовуємо фільтри користувача
-    filtered = filter_events(weeks, impacts, countries)
+    cats = csv_to_list(subs.get("categories_filter", ""))
+    filtered = filter_events(weeks, impacts, countries, cats)
     if not filtered:
         await m.answer("This week: no events match your filters.")
         return
@@ -216,11 +218,13 @@ async def menu_settings(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+
     kb = settings_kb(
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
         subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
     )
     await c.message.edit_text("⚙️ Settings:", reply_markup=kb)
     await c.answer()
@@ -243,9 +247,35 @@ async def cb_impact(c: CallbackQuery):
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
         subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
     await c.answer("Impact updated")
+
+# toggle category
+@router.callback_query(F.data.startswith("cat:"))
+async def cb_category(c: CallbackQuery):
+    subs = dict(get_sub(c.from_user.id, c.message.chat.id))
+    cats = set(csv_to_list(subs.get("categories_filter", "")))
+    val = c.data.split(":", 1)[1].lower()
+
+    if val in cats:
+        cats.remove(val)
+    else:
+        cats.add(val)
+
+    set_sub(c.from_user.id, c.message.chat.id, categories_filter=",".join(sorted(cats)))
+
+    subs = dict(get_sub(c.from_user.id, c.message.chat.id))
+    kb = settings_kb(
+        csv_to_list(subs.get("impact_filter", "")),
+        csv_to_list(subs.get("countries_filter", "")),
+        int(subs.get("alert_minutes", 30)),
+        subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
+    )
+    await c.message.edit_reply_markup(reply_markup=kb)
+    await c.answer("Categories updated ✅")
 
 # toggle currency
 @router.callback_query(F.data.startswith("cur:"))
@@ -265,6 +295,7 @@ async def cb_currency(c: CallbackQuery):
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
         subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
     await c.answer("Currencies updated")
@@ -282,6 +313,7 @@ async def cb_lang(c: CallbackQuery):
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
         subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
     await c.answer("Language updated")
@@ -303,6 +335,7 @@ async def cb_alert(c: CallbackQuery):
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
         subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
     )
     try:
         await c.message.edit_reply_markup(reply_markup=kb)
@@ -328,6 +361,7 @@ async def cb_reset(c: CallbackQuery):
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
         subs.get("lang_mode", "en"),
+        csv_to_list(subs.get("categories_filter", "")),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
     await c.answer("Settings reset")

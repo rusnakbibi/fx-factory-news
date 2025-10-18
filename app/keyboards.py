@@ -20,8 +20,25 @@ def back_kb() -> InlineKeyboardMarkup:
         inline_keyboard=[[InlineKeyboardButton(text="◀️ Back", callback_data="menu:home")]]
     )
 
+def _onoff(active: bool) -> str:
+    return "✅" if active else "⚪️"
+
+def categories_row(selected: list[str]) -> list[InlineKeyboardButton]:
+    sel = {s.lower() for s in selected}
+    return [
+        InlineKeyboardButton(text=f"{_onoff('forex' in sel)} Forex",  callback_data="cat:forex"),
+        InlineKeyboardButton(text=f"{_onoff('crypto' in sel)} Crypto", callback_data="cat:crypto"),
+        InlineKeyboardButton(text=f"{_onoff('metals' in sel)} Metals", callback_data="cat:metals"),
+    ]
+
 # ---------- SETTINGS PANEL (toggle filters) ----------
-def settings_kb(selected_impacts, selected_currencies, alert_minutes, lang_mode):
+def settings_kb(
+    selected_impacts,
+    selected_currencies,
+    alert_minutes: int,
+    lang_mode: str,
+    categories: list[str] | None = None,   # ⬅️ ДОДАЛИ
+) -> InlineKeyboardMarkup:
     imp_buttons = [
         InlineKeyboardButton(
             text=("✅ " if i in selected_impacts else "☐ ") + i,
@@ -56,10 +73,14 @@ def settings_kb(selected_impacts, selected_currencies, alert_minutes, lang_mode)
     ]
     rows.append(lang_buttons)
 
-    rows.append([InlineKeyboardButton(text="⏱ /subscribe", callback_data="sub:ask"),
-                 InlineKeyboardButton(text="🧹 reset filters", callback_data="reset")])
+    rows.append(categories_row(categories or []))
 
+    rows.append([
+        InlineKeyboardButton(text="⏱ /subscribe", callback_data="sub:ask"),
+        InlineKeyboardButton(text="🧹 reset filters", callback_data="reset"),
+    ])
     rows.append([InlineKeyboardButton(text="◀️ Back", callback_data="menu:home")])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 # ---------- SUBSCRIBE TIME PRESETS ----------

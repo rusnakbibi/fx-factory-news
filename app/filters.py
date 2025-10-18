@@ -1,12 +1,13 @@
 # app/filters.py
 from __future__ import annotations
-from dataclasses import dataclass
 from typing import Iterable, List, Set
-import re
+import logging, re
 
 from .models import FFEvent
 
-# ---- нормалізація -------------------------------------------------
+log = logging.getLogger(__name__)
+
+# ---------------- Impact normalization ----------------
 
 _IMPACT_ALIASES = {
     "high": "High",
@@ -15,8 +16,8 @@ _IMPACT_ALIASES = {
     "low": "Low",
     # важливо: Holiday -> Non-economic
     "holiday": "Non-economic",
-    "non-economic": "Non-economic",
     "noneconomic": "Non-economic",
+    "non-economic": "Non-economic",
     "bankholiday": "Non-economic",
     "bank holiday": "Non-economic",
 }
@@ -36,29 +37,71 @@ def normalize_impact(raw: str | None) -> str:
 def normalize_currency(raw: str | None) -> str:
     s = (raw or "").strip().upper()
     s = re.sub(r"[^A-Z]", "", s)
-    return s[:4]
+    return s[:4]  # USD, EUR, JPY ...
 
-# ---- фільтрація ---------------------------------------------------
+# ---------------- Categories ----------------
+# Прості евристики: ключові слова у назві або код валюти → категорія
+
+FX_CODES = {
+    "USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF","CNY"
+}
+CRYPTO_KW = {
+    "crypto","cryptocurrency","bitcoin","btc","ethereum","eth","defi","stablecoin","blockchain"
+}
+METALS_KW = {
+    "gold","xau","silver","xag","platinum","palladium","copper","metal","metals"
+}
+
+def normalize_category(raw: str | None) -> str:
+    s = (raw or "").strip().lower()
+    if s in ("forex","fx"): return "forex"
+    if s in ("crypto","cryptocurrency"): return "crypto"
+    if s in ("metals","metal"): return "metals"
+    return ""
+
+def categorize_event(ev: FFEvent) -> str:
+    title = (ev.title or "").lower()
+    cur = (ev.currency or "").upper()
+
+    if any(k in title for k in CRYPTO_KW):
+        return "crypto"
+    if any(k in title for k in METALS_KW):
+        return "metals"
+    if cur in FX_CODES:
+        return "forex"
+    return "forex"  # дефолт, щоб не «губити» події
+
+# ---------------- Filtering ----------------
 
 def filter_events(
     events: Iterable[FFEvent],
-    impacts_sel: List[str] | Set[str],
-    currencies_sel: List[str] | Set[str],
+    impacts: Iterable[str] | None = None,
+    countries: Iterable[str] | None = None,
+    categories: Iterable[str] | None = None,
 ) -> List[FFEvent]:
-    impacts_set: Set[str] = {normalize_impact(i) for i in impacts_sel if i}
-    # нормалізуємо Holiday -> Non-economic уже тут
-    currencies_set: Set[str] = {normalize_currency(c) for c in currencies_sel if c}
+    """
+    Фільтрує за:
+      - impact (High/Medium/Low/Non-economic)
+      - currency (USD/EUR/...)
+      - category (forex/crypto/metals) — евристика з назви/валюти
+    Порожні множини = не фільтруємо за цим критерієм.
+    """
+    imp_set: Set[str] = {normalize_impact(i) for i in (impacts or []) if normalize_impact(i)}
+    cur_set: Set[str] = {normalize_currency(c) for c in (countries or []) if normalize_currency(c)}
+    cat_set: Set[str] = {normalize_category(x) for x in (categories or []) if normalize_category(x)}
 
     out: List[FFEvent] = []
     for ev in events:
-        # impact: якщо в події порожній — не відсікаємо
-        imp = normalize_impact(ev.impact)
-        if imp and impacts_set and imp not in impacts_set:
+        cur = normalize_currency(ev.currency)
+        if cur_set and cur and cur not in cur_set:
             continue
 
-        # currency: якщо в події порожня — ПРОПУСКАЄМО
-        cur = normalize_currency(ev.currency)
-        if cur and currencies_set and cur not in currencies_set:
+        imp = normalize_impact(ev.impact)
+        if imp and imp_set and imp not in imp_set:
+            continue
+
+        cat = categorize_event(ev)
+        if cat_set and cat not in cat_set:
             continue
 
         out.append(ev)

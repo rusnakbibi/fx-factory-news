@@ -48,7 +48,8 @@ async def scheduler(bot: Bot):
 
                     # ------- Alerts N хв до події -------
                     ahead = now_utc + timedelta(minutes=alert_minutes)
-                    for ev in filter_events(cached, impacts, countries):
+                    cats = csv_to_list(sub.get("categories_filter", ""))
+                    for ev in filter_events(cached, impacts, countries, cats):
                         # ±120 секунд, щоб не пропускати через тік сну
                         if abs((ev.date - ahead).total_seconds()) <= 120:
                             evh = event_hash(ev)
@@ -77,7 +78,8 @@ async def scheduler(bot: Bot):
                             start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
                             end = start + timedelta(days=1)
                             todays = [e for e in cached if start <= e.date < end]
-                            filtered = filter_events(todays, impacts, countries)
+                            cats = csv_to_list(subs.get("categories_filter", ""))
+                            filtered = filter_events(todays, impacts, countries, cats)
                             if filtered:
                                 for ch in chunk(filtered, 8):
                                     try:

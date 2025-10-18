@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 # --- PG / SQLite autodetect ---
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
@@ -28,24 +28,51 @@ def _dict(row) -> Dict[str, Any]:
         return {}
     if isinstance(row, dict):
         return row
-    # sqlite Row?
     try:
-        return dict(row)
+        return dict(row)  # sqlite Row -> dict
     except Exception:
         return row
+
+# ---------- helpers to add categories_filter column (define BEFORE init) ----------
+
+def _ensure_column_categories_filter_pg(conn):
+    """Додає колонку categories_filter у subscriptions, якщо її ще немає (PostgreSQL)."""
+    with conn.cursor() as cur:
+        cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name='subscriptions' AND column_name='categories_filter'
+            ) THEN
+                ALTER TABLE subscriptions ADD COLUMN categories_filter TEXT DEFAULT '';
+            END IF;
+        END$$;
+        """)
+        conn.commit()
+
+def _ensure_column_categories_filter_sqlite(conn):
+    """Додає колонку categories_filter у subscriptions, якщо її ще немає (SQLite)."""
+    try:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN categories_filter TEXT DEFAULT ''")
+    except Exception as e:
+        # Якщо колонка вже існує — ігноруємо (duplicate column name)
+        if "duplicate column" not in str(e).lower():
+            raise
 
 # ---------- schema (both backends) ----------
 
 DDL_SUBS = """
 CREATE TABLE IF NOT EXISTS subscriptions (
-  user_id        BIGINT NOT NULL,
-  chat_id        BIGINT NOT NULL,
-  impact_filter  TEXT   NOT NULL DEFAULT 'High,Medium',
-  countries_filter TEXT NOT NULL DEFAULT '',
-  alert_minutes  INTEGER NOT NULL DEFAULT 30,
-  daily_time     TEXT   NOT NULL DEFAULT '09:00',
-  lang_mode      TEXT   NOT NULL DEFAULT 'en',
-  out_chat_id    BIGINT,
+  user_id          BIGINT NOT NULL,
+  chat_id          BIGINT NOT NULL,
+  impact_filter    TEXT   NOT NULL DEFAULT 'High,Medium',
+  countries_filter TEXT   NOT NULL DEFAULT '',
+  alert_minutes    INTEGER NOT NULL DEFAULT 30,
+  daily_time       TEXT   NOT NULL DEFAULT '09:00',
+  lang_mode        TEXT   NOT NULL DEFAULT 'en',
+  out_chat_id      BIGINT,
   PRIMARY KEY (user_id, chat_id)
 );
 """
@@ -60,7 +87,6 @@ CREATE TABLE IF NOT EXISTS sent_log (
 );
 """
 
-# optional small cache table (kept for API compatibility; not used now)
 DDL_CACHE = """
 CREATE TABLE IF NOT EXISTS events_cache (
   cache_key  TEXT PRIMARY KEY,
@@ -77,22 +103,23 @@ def _init_sqlite(path: str = "bot.db"):
     cur.execute(DDL_SENT)
     cur.execute(DDL_CACHE)
     cur.close()
+    # ensure extra column (SQLite)
+    _ensure_column_categories_filter_sqlite(conn)
     return conn
 
 def _init_pg(dsn: str):
     conn = psycopg.connect(dsn, **PG_CONN_KW)
     with conn.cursor() as cur:
-        # створюємо таблиці прямо у форматі PostgreSQL
         cur.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
-          user_id        BIGINT NOT NULL,
-          chat_id        BIGINT NOT NULL,
-          impact_filter  TEXT   NOT NULL DEFAULT 'High,Medium',
-          countries_filter TEXT NOT NULL DEFAULT '',
-          alert_minutes  INTEGER NOT NULL DEFAULT 30,
-          daily_time     TEXT   NOT NULL DEFAULT '09:00',
-          lang_mode      TEXT   NOT NULL DEFAULT 'en',
-          out_chat_id    BIGINT,
+          user_id          BIGINT NOT NULL,
+          chat_id          BIGINT NOT NULL,
+          impact_filter    TEXT   NOT NULL DEFAULT 'High,Medium',
+          countries_filter TEXT   NOT NULL DEFAULT '',
+          alert_minutes    INTEGER NOT NULL DEFAULT 30,
+          daily_time       TEXT   NOT NULL DEFAULT '09:00',
+          lang_mode        TEXT   NOT NULL DEFAULT 'en',
+          out_chat_id      BIGINT,
           PRIMARY KEY (user_id, chat_id)
         );
         """)
@@ -112,9 +139,12 @@ def _init_pg(dsn: str):
           expires_at TIMESTAMPTZ NOT NULL
         );
         """)
+    # ensure extra column (PostgreSQL)
+    _ensure_column_categories_filter_pg(conn)
     return conn
 
-# keep global single connection (simple & adequate for our light workload)
+# ---------- open global connection ----------
+
 if USE_PG:
     _CONN = _init_pg(DATABASE_URL)
 else:
@@ -123,9 +153,7 @@ else:
 # ---------- public API ----------
 
 def ensure_sub(user_id: int, chat_id: int):
-    """
-    Insert default subscription if not exists.
-    """
+    """Insert default subscription if not exists."""
     if USE_PG:
         with _CONN.cursor() as cur:
             cur.execute(
@@ -138,17 +166,12 @@ def ensure_sub(user_id: int, chat_id: int):
             )
     else:
         _CONN.execute(
-            """
-            INSERT OR IGNORE INTO subscriptions (user_id, chat_id)
-            VALUES (?, ?)
-            """,
+            "INSERT OR IGNORE INTO subscriptions (user_id, chat_id) VALUES (?, ?)",
             (user_id, chat_id),
         )
 
 def get_sub(user_id: int, chat_id: int) -> Dict[str, Any]:
-    """
-    Return subscription row as dict (or {}).
-    """
+    """Return subscription row as dict (or {})."""
     if USE_PG:
         with _CONN.cursor() as cur:
             cur.execute(
@@ -166,15 +189,11 @@ def get_sub(user_id: int, chat_id: int) -> Dict[str, Any]:
         return _row_to_dict_sqlite(row) if row else {}
 
 def set_sub(user_id: int, chat_id: int, **fields):
-    """
-    Update provided fields for subscription.
-    """
+    """Update provided fields for subscription."""
     if not fields:
         return
     cols = sorted(fields.keys())
-
     if USE_PG:
-        # build SET clause
         assigns = ", ".join(f"{c}=%s" for c in cols)
         params = [fields[c] for c in cols] + [user_id, chat_id]
         with _CONN.cursor() as cur:
@@ -204,9 +223,7 @@ def unsubscribe(user_id: int, chat_id: int):
         )
 
 def get_all_subs() -> List[Dict[str, Any]]:
-    """
-    Return all subscriptions as list of dicts.
-    """
+    """Return all subscriptions as list of dicts."""
     if USE_PG:
         with _CONN.cursor() as cur:
             cur.execute("SELECT * FROM subscriptions")
@@ -234,10 +251,7 @@ def mark_sent(chat_id: int, ev_hash: str, kind: str):
             )
     else:
         _CONN.execute(
-            """
-            INSERT OR IGNORE INTO sent_log (chat_id, ev_hash, kind)
-            VALUES (?, ?, ?)
-            """,
+            "INSERT OR IGNORE INTO sent_log (chat_id, ev_hash, kind) VALUES (?, ?, ?)",
             (chat_id, ev_hash, kind),
         )
 
@@ -259,8 +273,5 @@ def was_sent(chat_id: int, ev_hash: str, kind: str) -> bool:
 # ---- optional: cache of actuals (noop for now) ----
 
 def apply_cached_actuals(events):
-    """
-    API-compat shim (noop). Залишено для сумісності зі старим кодом.
-    Просто повертає events як є.
-    """
+    """API-compat shim (noop)."""
     return events
