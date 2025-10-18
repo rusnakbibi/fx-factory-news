@@ -3,4 +3,4 @@ httpx==0.27.2
 python-dateutil==2.9.0.post0
 deep-translator==1.11.4
 python-dotenv==1.0.1
-psycopg[binary]>=3.2
+psycopg[binary]==3.2.10
