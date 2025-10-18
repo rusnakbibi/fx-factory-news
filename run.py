@@ -1,11 +1,26 @@
 import asyncio
 import contextlib
 import logging
+import os
 from dotenv import load_dotenv
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 
+# --- 🟡 DEBUG LOGGING CONFIG ---
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+
+logging.basicConfig(
+    level=getattr(logging, log_level, logging.INFO),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+
+# Розширюємо логування для наших модулів
+logging.getLogger("app").setLevel(getattr(logging, log_level, logging.INFO))
+logging.getLogger("aiogram").setLevel(getattr(logging, log_level, logging.INFO))
+logging.getLogger("httpx").setLevel(getattr(logging, log_level, logging.INFO))
+
+# --- імпорти після логів ---
 from aiogram.exceptions import TelegramConflictError
 from app.config import BOT_TOKEN
 from app.bot import build_bot, build_dispatcher
@@ -19,7 +34,7 @@ async def main():
     bot = await build_bot(BOT_TOKEN)
     dp = build_dispatcher()
 
-    # На випадок, якщо колись був webhook
+    # --- очистка webhook ---
     with contextlib.suppress(Exception):
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info("Webhook deleted.")
@@ -36,8 +51,6 @@ async def main():
     finally:
         logging.info("Stopping scheduler...")
         bg.cancel()
-        # ВАЖЛИВО: у Python 3.12 CancelledError може «спливати»,
-        # тому чітко приглушуємо саме asyncio.CancelledError.
         with contextlib.suppress(asyncio.CancelledError):
             await bg
 
@@ -45,5 +58,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
-        # чистий вихід без зайвого трейсбеку
+        # чистий вихід без трейсбеків
         pass

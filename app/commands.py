@@ -1,166 +1,101 @@
-import re
+# app/commands.py
+from __future__ import annotations
+
+import logging
 from datetime import datetime, timedelta
+
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
-from aiogram.exceptions import TelegramBadRequest
 
-from .config import LOCAL_TZ, TZ_NAME
-from .db import ensure_sub, set_sub, get_sub
+from .config import LOCAL_TZ, UTC
 from .ff_client import fetch_calendar
 from .filters import filter_events
 from .formatting import event_to_text
 from .utils import csv_to_list, chunk
-from .keyboards import settings_kb
+from .keyboards import main_menu_kb, back_kb, settings_kb, subscribe_time_kb, alerts_presets_kb
+from .db import ensure_sub, get_sub, unsubscribe, set_sub
 
 router = Router()
+log = logging.getLogger(__name__)
 
+
+def _fmt_event(ev):
+    # зручно проглядати в логах
+    lt = ev.date.astimezone(LOCAL_TZ)
+    return f"[{ev.currency}|{ev.impact}] {lt:%Y-%m-%d %H:%M} (local) / {ev.date:%Y-%m-%d %H:%M}Z — {ev.title[:80]}"
+
+# ---------- внутрішній хелпер: надіслати події за сьогодні ----------
+async def _send_today(m: Message, subs: dict):
+    """
+    Показує всі події за СЬОГОДНІ (повний календарний день у LOCAL_TZ),
+    включно з тими, що вже відбулися.
+    """
+    lang = subs.get("lang_mode", "en")
+    impacts = csv_to_list(subs.get("impact_filter", ""))
+    countries = csv_to_list(subs.get("countries_filter", ""))
+
+    log.debug(f"[today] filters: impacts={impacts} countries={countries} lang={lang}")
+
+    try:
+        events = await fetch_calendar(lang=lang)
+    except Exception as e:
+        log.exception(f"[today] fetch_calendar failed: {e}")
+        await m.answer("Internal fetch error. See logs.")
+        return
+
+    log.debug(f"[today] fetched total events: {len(events)}")
+
+    # 1) Межі сьогодні у локальному часі
+    now_local = datetime.now(LOCAL_TZ)
+    start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_local = start_local + timedelta(days=1)
+    start_utc = start_local.astimezone(UTC)
+    end_utc = end_local.astimezone(UTC)
+
+    log.debug(
+        f"[today] window local: {start_local:%Y-%m-%d %H:%M} .. {end_local:%Y-%m-%d %H:%M} | "
+        f"utc: {start_utc:%Y-%m-%d %H:%M}Z .. {end_utc:%Y-%m-%d %H:%M}Z"
+    )
+
+    # 2) Фільтр за часом (у UTC)
+    todays = [e for e in events if start_utc <= e.date < end_utc]
+    log.debug(f"[today] in-window (time) count: {len(todays)}")
+
+    if not todays:
+        # Підказка: покажемо перші 3 «поза вікном», щоб зрозуміти зсув
+        sample = "\n".join(_fmt_event(ev) for ev in events[:3])
+        log.debug(f"[today] sample of fetched (first 3):\n{sample}")
+        await m.answer("Today: no events (time window). See logs for details.")
+        return
+
+    # 3) Застосовуємо user-фільтри
+    filtered = filter_events(todays, impacts, countries)
+    log.debug(f"[today] after filters count: {len(filtered)}")
+
+    if not filtered:
+        # Допоміжний лог: покажемо 3 події, що були у вікні, але відсіклися фільтрами
+        sample = "\n".join(_fmt_event(ev) for ev in todays[:3])
+        log.debug(f"[today] sample in-window (first 3):\n{sample}")
+        await m.answer("Today: no events match your filters.")
+        return
+
+    # 4) Надсилаємо
+    header = "📅 <b>Today</b>\n"
+    for pack in chunk(filtered, 8):
+        body = "\n\n".join(event_to_text(ev, LOCAL_TZ) for ev in pack)
+        await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
+        header = ""
+
+# ---------- команди ----------
 @router.message(Command("start"))
 async def cmd_start(m: Message):
     ensure_sub(m.from_user.id, m.chat.id)
-    await m.answer(
-        (
-            "<b>Привіт!</b> Я шле економічні події з ForexFactory.\n\n"
-            "Команди:\n"
-            "• /settings — відкриє інлайн‑панель для фільтрів\n"
-            "• /subscribe HH:MM — щоденна розсилка\n"
-            "• /alert N — пуш за N хв до події (напр. /alert 30)\n"
-            "• /impact High,Medium — фільтри важливості (текстово)\n"
-            "• /countries USD,EUR — фільтр валют/країн (текстово)\n"
-            "• /lang uk|en|auto — мова заголовків (автопереклад)\n"
-            "• /postto @channel — слати у вказаний канал (додайте мене адміністратором)\n"
-            "• /today — події на сьогодні зараз\n"
-            "• /stop — вимкнути нотифікації\n"
-        ),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    await m.answer("Choose an action:", reply_markup=main_menu_kb())
 
-@router.message(Command("settings"))
-async def cmd_settings(m: Message):
-    ensure_sub(m.from_user.id, m.chat.id)
-    subs = get_sub(m.from_user.id, m.chat.id)
-    impacts = csv_to_list(subs["impact_filter"])
-    currencies = csv_to_list(subs["countries_filter"])
-    alert_minutes = int(subs["alert_minutes"])
-    lang_mode = subs["lang_mode"]
-    kb = settings_kb(impacts, currencies, alert_minutes, lang_mode)
-    await m.answer("⚙️ Налаштування фільтрів:", reply_markup=kb)
-
-@router.callback_query(F.data.startswith("imp:"))
-async def cb_impact(c: CallbackQuery):
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    impacts = set(csv_to_list(subs["impact_filter"]))
-    val = c.data.split(":",1)[1]
-    if val in impacts: impacts.remove(val)
-    else: impacts.add(val)
-    set_sub(c.from_user.id, c.message.chat.id, impact_filter=",".join(sorted(impacts)))
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    kb = settings_kb(csv_to_list(subs["impact_filter"]), csv_to_list(subs["countries_filter"]), int(subs["alert_minutes"]), subs["lang_mode"])
-    await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Impact оновлено")
-
-@router.callback_query(F.data.startswith("cur:"))
-async def cb_currency(c: CallbackQuery):
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    curr = set(csv_to_list(subs["countries_filter"]))
-    val = c.data.split(":",1)[1]
-    if val in curr: curr.remove(val)
-    else: curr.add(val)
-    set_sub(c.from_user.id, c.message.chat.id, countries_filter=",".join(sorted(curr)))
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    kb = settings_kb(csv_to_list(subs["impact_filter"]), csv_to_list(subs["countries_filter"]), int(subs["alert_minutes"]), subs["lang_mode"])
-    await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Валюти оновлено")
-
-@router.callback_query(F.data.startswith("al:"))
-async def cb_alert(c: CallbackQuery):
-    val = int(c.data.split(":",1)[1])
-    set_sub(c.from_user.id, c.message.chat.id, alert_minutes=val)
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    kb = settings_kb(csv_to_list(subs["impact_filter"]), csv_to_list(subs["countries_filter"]), int(subs["alert_minutes"]), subs["lang_mode"])
-    await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Час алерту оновлено")
-
-@router.callback_query(F.data.startswith("lang:trash"))  # guard if needed
-async def cb_lang_noop(c: CallbackQuery):
-    await c.answer()
-
-@router.callback_query(F.data.startswith("lang:"))
-async def cb_lang(c: CallbackQuery):
-    val = c.data.split(":",1)[1]
-    set_sub(c.from_user.id, c.message.chat.id, lang_mode=val)
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    kb = settings_kb(csv_to_list(subs["impact_filter"]), csv_to_list(subs["countries_filter"]), int(subs["alert_minutes"]), subs["lang_mode"])
-    await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Мову автоперекладу оновлено")
-
-@router.callback_query(F.data=="reset")
-async def cb_reset(c: CallbackQuery):
-    set_sub(c.from_user.id, c.message.chat.id, impact_filter="High,Medium", countries_filter="", alert_minutes=30, lang_mode="en")
-    subs = get_sub(c.from_user.id, c.message.chat.id)
-    kb = settings_kb(csv_to_list(subs["impact_filter"]), csv_to_list(subs["countries_filter"]), int(subs["alert_minutes"]), subs["lang_mode"])
-    await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Скинуто налаштування")
-
-@router.message(Command("subscribe"))
-async def cmd_subscribe(m: Message):
-    time_str = _arg_tail(m.text)
-    if not re.match(r"^\d{1,2}:\d{2}$", time_str or ""):
-        return await m.answer("Приклад: /subscribe 09:00")
-    hh, mm = map(int, time_str.split(":"))
-    set_sub(m.from_user.id, m.chat.id, daily_time=f"{hh:02d}:{mm:02d}")
-    await m.answer(f"Щоденна розсилка о {hh:02d}:{mm:02d} ({TZ_NAME}).")
-
-@router.message(Command("alert"))
-async def cmd_alert(m: Message):
-    try:
-        mins = int((_arg_tail(m.text) or "").strip())
-    except Exception:
-        mins = 0
-    if not mins or mins < 5 or mins > 180:
-        return await m.answer("Вкажіть хвилини 5–180, напр. /alert 30")
-    set_sub(m.from_user.id, m.chat.id, alert_minutes=mins)
-    await m.answer(f"Нагадування за {mins} хв до події активовано.")
-
-@router.message(Command("impact"))
-async def cmd_impact(m: Message):
-    s = _arg_tail(m.text)
-    if not s:
-        return await m.answer("Приклад: /impact High,Medium")
-    set_sub(m.from_user.id, m.chat.id, impact_filter=s)
-    await m.answer(f"Фільтр важливості: {s}")
-
-@router.message(Command("countries"))
-async def cmd_countries(m: Message):
-    s = _arg_tail(m.text) or ""
-    set_sub(m.from_user.id, m.chat.id, countries_filter=s)
-    await m.answer(f"Фільтр валют/країн: {s or 'всі'}")
-
-@router.message(Command("lang"))
-async def cmd_lang(m: Message):
-    s = (_arg_tail(m.text) or "").lower()
-    if s not in ("en","uk","auto"):
-        return await m.answer("Використай: /lang en | /lang uk | /lang auto")
-    set_sub(m.from_user.id, m.chat.id, lang_mode=s)
-    await m.answer(f"Мова автоперекладу: {s}")
-
-@router.message(Command("postto"))
-async def cmd_postto(m: Message):
-    # set output channel/chat where messages will be sent
-    val = _arg_tail(m.text) or ""
-    if not val:
-        return await m.answer("Приклад: /postto @your_channel або /postto -1001234567890")
-    try:
-        chat = await m.bot.get_chat(val)
-        out_id = chat.id
-    except TelegramBadRequest:
-        try:
-            out_id = int(val)
-        except Exception:
-            return await m.answer("Не вдалося визначити чат. Спробуй @username або numeric id.")
-    set_sub(m.from_user.id, m.chat.id, out_chat_id=out_id)
-    await m.answer(f"Розсилка тепер йтиме в чат/канал: <code>{out_id}</code>", parse_mode="HTML")
+@router.message(Command("menu"))
+async def cmd_menu(m: Message):
+    await m.answer("Main menu:", reply_markup=main_menu_kb())
 
 @router.message(Command("today"))
 async def cmd_today(m: Message):
@@ -168,32 +103,102 @@ async def cmd_today(m: Message):
     if not subs:
         ensure_sub(m.from_user.id, m.chat.id)
         subs = get_sub(m.from_user.id, m.chat.id)
-    lang = subs["lang_mode"]
-    events = await fetch_calendar(lang=lang)
-    now_local = datetime.now(LOCAL_TZ)
-    start_utc = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone()
-    end_utc = start_utc + timedelta(days=1)
-    todays = [e for e in events if start_utc <= e.date <= end_utc]
+    await _send_today(m, subs)
 
-    filtered = filter_events(todays, csv_to_list(subs["impact_filter"]), csv_to_list(subs["countries_filter"]))
-    if not filtered:
-        return await m.answer("Сьогодні подій за вашими фільтрами немає.")
+# ---------- інлайн-меню (кнопки) ----------
+@router.callback_query(F.data == "menu:home")
+async def cb_home(c: CallbackQuery):
+    # Повертаємось до головного меню, редагуємо поточне повідомлення.
+    await c.message.edit_text("Main menu:", reply_markup=main_menu_kb())
+    await c.answer()
 
-    # If out_chat_id set, send there
-    target_chat = subs["out_chat_id"] or m.chat.id
-    for ch in chunk(filtered, 8):
-        await m.bot.send_message(target_chat, "\n\n".join(event_to_text(ev, LOCAL_TZ) for ev in ch), parse_mode="HTML", disable_web_page_preview=True)
+@router.callback_query(F.data == "menu:today")
+async def cb_today(c: CallbackQuery):
+    # Забираємо підписку користувача, відправляємо сьогоднішні події
+    subs = get_sub(c.from_user.id, c.message.chat.id)
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = get_sub(c.from_user.id, c.message.chat.id)
 
-@router.message(Command("stop"))
-async def cmd_stop(m: Message):
-    from .db import db
-    with db() as conn:
-        conn.execute("DELETE FROM subscriptions WHERE user_id=? AND chat_id=?", (m.from_user.id, m.chat.id))
-        conn.commit()
-    await m.answer("Підписку вимкнено для цього чату.")
+    await c.answer("Fetching today…", show_alert=False)
 
-def _arg_tail(text: str | None) -> str | None:
-    if not text:
-        return None
-    parts = text.strip().split(maxsplit=1)
-    return parts[1].strip() if len(parts) > 1 else None
+    # Зручно: редагуємо «контейнерне» повідомлення на статус і Back
+    try:
+        await c.message.edit_text("📅 Today:", reply_markup=back_kb())
+    except Exception:
+        pass
+
+    # Відправляємо список подій окремими повідомленнями
+    await _send_today(c.message, subs)
+
+    # І ще раз показуємо головне меню окремим повідомленням
+    await c.message.answer("Back to menu:", reply_markup=main_menu_kb())
+
+# ----- SETTINGS -----
+@router.callback_query(F.data == "menu:settings")
+async def menu_settings(c: CallbackQuery):
+    subs = get_sub(c.from_user.id, c.message.chat.id)
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = get_sub(c.from_user.id, c.message.chat.id)
+    kb = settings_kb(
+        csv_to_list(subs["impact_filter"]),
+        csv_to_list(subs["countries_filter"]),
+        int(subs["alert_minutes"]),
+        subs["lang_mode"],
+    )
+    await c.message.edit_text("⚙️ Settings:", reply_markup=kb)
+    await c.answer()
+
+# ----- DAILY DIGEST -----
+@router.callback_query(F.data == "menu:subscribe")
+async def menu_subscribe(c: CallbackQuery):
+    subs = get_sub(c.from_user.id, c.message.chat.id)
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = get_sub(c.from_user.id, c.message.chat.id)
+    cur = subs.get("daily_time", "09:00")
+    presets = ["08:00","09:00","10:00","12:00","15:00","18:00"]
+    await c.message.edit_text(
+        f"⏱ Choose daily digest time (current {cur}):",
+        reply_markup=subscribe_time_kb(presets),
+    )
+    await c.answer()
+
+@router.callback_query(F.data.startswith("sub:set:"))
+async def cb_sub_set(c: CallbackQuery):
+    t = c.data.split(":", 2)[2]
+    import re
+    if not re.fullmatch(r"\d{2}:\d{2}", t):
+        return await c.answer("Invalid time")
+    set_sub(c.from_user.id, c.message.chat.id, daily_time=t)
+    await c.message.edit_text(f"✅ Daily digest at {t}.", reply_markup=main_menu_kb())
+    await c.answer("Saved")
+
+# ----- ALERTS -----
+@router.callback_query(F.data == "menu:alerts")
+async def menu_alerts(c: CallbackQuery):
+    subs = get_sub(c.from_user.id, c.message.chat.id)
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = get_sub(c.from_user.id, c.message.chat.id)
+    cur = int(subs.get("alert_minutes", 30))
+    await c.message.edit_text("⏰ Alert before event:", reply_markup=alerts_presets_kb(cur))
+    await c.answer()
+
+@router.callback_query(F.data.startswith("al:"))
+async def cb_alert(c: CallbackQuery):
+    try:
+        val = int(c.data.split(":", 1)[1])
+    except Exception:
+        return await c.answer("Invalid value")
+    set_sub(c.from_user.id, c.message.chat.id, alert_minutes=val)
+    await c.message.edit_text(f"Saved: alert {val}m before.", reply_markup=main_menu_kb())
+    await c.answer("Saved")
+
+# ----- STOP -----
+@router.callback_query(F.data == "menu:stop")
+async def menu_stop(c: CallbackQuery):
+    unsubscribe(c.from_user.id, c.message.chat.id)
+    await c.message.edit_text("Notifications disabled for this chat.", reply_markup=main_menu_kb())
+    await c.answer()

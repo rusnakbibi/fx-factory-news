@@ -1,10 +1,37 @@
+# app/db.py
+from __future__ import annotations
+
+import os
 import sqlite3
-from contextlib import closing
+from contextlib import contextmanager, closing
 from datetime import datetime
+from typing import List, Optional, Iterable, Tuple, Dict, Any
+
 from .config import DB_PATH
 
+# ---- налаштування sqlite ----
+os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row  # щоб мати доступ по імені колонок
+    return conn
+
+@contextmanager
+def db():
+    conn = _connect()
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+# ---- DDL ----
 DDL = [
-    '''
+    """
     CREATE TABLE IF NOT EXISTS subscriptions (
         user_id INTEGER NOT NULL,
         chat_id INTEGER NOT NULL,
@@ -12,12 +39,12 @@ DDL = [
         impact_filter TEXT NOT NULL DEFAULT 'High,Medium',
         countries_filter TEXT NOT NULL DEFAULT '',
         alert_minutes INTEGER NOT NULL DEFAULT 30,
-        out_chat_id INTEGER,   -- куди слати (канал/група/той самий чат)
-        lang_mode TEXT NOT NULL DEFAULT 'en', -- en|uk|auto
+        out_chat_id INTEGER,
+        lang_mode TEXT NOT NULL DEFAULT 'en',
         PRIMARY KEY (user_id, chat_id)
     );
-    ''',
-    '''
+    """,
+    """
     CREATE TABLE IF NOT EXISTS sent_alerts (
         chat_id INTEGER NOT NULL,
         event_hash TEXT NOT NULL,
@@ -25,52 +52,82 @@ DDL = [
         created_at TEXT NOT NULL,
         PRIMARY KEY (chat_id, event_hash, kind)
     );
-    '''
+    """,
 ]
 
-def db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+with db() as conn:
+    with closing(conn.cursor()) as cur:
+        for stmt in DDL:
+            cur.execute(stmt)
 
-with closing(db()) as conn:
-    cur = conn.cursor()
-    for stmt in DDL:
-        cur.executescript(stmt)
-    conn.commit()
+# ================= SUBSCRIPTIONS =================
 
-def ensure_sub(user_id: int, chat_id: int):
-    with closing(db()) as conn:
-        conn.execute("INSERT OR IGNORE INTO subscriptions (user_id, chat_id) VALUES (?, ?)", (user_id, chat_id))
-        conn.commit()
+def ensure_sub(user_id: int, chat_id: int) -> None:
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute(
+                """
+                INSERT OR IGNORE INTO subscriptions (user_id, chat_id)
+                VALUES (?, ?)
+                """,
+                (user_id, chat_id),
+            )
 
-def set_sub(user_id: int, chat_id: int, **kwargs):
-    ensure_sub(user_id, chat_id)
-    sets = ", ".join(f"{k}=?" for k in kwargs)
-    vals = list(kwargs.values()) + [user_id, chat_id]
-    with closing(db()) as conn:
-        conn.execute(f"UPDATE subscriptions SET {sets} WHERE user_id=? AND chat_id=?", vals)
-        conn.commit()
+def set_sub(user_id: int, chat_id: int, **kwargs) -> None:
+    if not kwargs:
+        return
+    columns = ", ".join(f"{k}=?" for k in kwargs.keys())
+    values = list(kwargs.values()) + [user_id, chat_id]
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute(
+                f"UPDATE subscriptions SET {columns} WHERE user_id=? AND chat_id=?",
+                values,
+            )
 
-def get_sub(user_id: int, chat_id: int):
-    with closing(db()) as conn:
-        cur = conn.execute("SELECT * FROM subscriptions WHERE user_id=? AND chat_id=?", (user_id, chat_id))
-        return cur.fetchone()
+def get_sub(user_id: int, chat_id: int) -> Optional[Dict[str, Any]]:
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute(
+                "SELECT * FROM subscriptions WHERE user_id=? AND chat_id=?",
+                (user_id, chat_id),
+            )
+            row = cur.fetchone()
+            return dict(row) if row else None
 
-def get_all_subs():
-    with closing(db()) as conn:
-        cur = conn.execute("SELECT * FROM subscriptions")
-        return cur.fetchall()
+def get_all_subs() -> List[Dict[str, Any]]:
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute("SELECT * FROM subscriptions")
+            rows = cur.fetchall()
+            return [dict(r) for r in rows]
 
-def mark_sent(chat_id: int, event_hash: str, kind: str):
-    with closing(db()) as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO sent_alerts (chat_id, event_hash, kind, created_at) VALUES (?, ?, ?, ?)",
-            (chat_id, event_hash, kind, datetime.utcnow().isoformat()),
-        )
-        conn.commit()
+def unsubscribe(user_id: int, chat_id: int) -> None:
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute(
+                "DELETE FROM subscriptions WHERE user_id=? AND chat_id=?",
+                (user_id, chat_id),
+            )
 
-def was_sent(chat_id: int, event_hash: str, kind: str) -> bool:
-    with closing(db()) as conn:
-        cur = conn.execute("SELECT 1 FROM sent_alerts WHERE chat_id=? AND event_hash=? AND kind=?", (chat_id, event_hash, kind))
-        return cur.fetchone() is not None
+# ================= SENT ALERTS =================
+
+def mark_sent(chat_id: int, ev_hash: str, kind: str) -> None:
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute(
+                """
+                INSERT OR IGNORE INTO sent_alerts (chat_id, event_hash, kind, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (chat_id, ev_hash, kind, datetime.utcnow().isoformat()),
+            )
+
+def was_sent(chat_id: int, ev_hash: str, kind: str) -> bool:
+    with db() as conn:
+        with closing(conn.cursor()) as cur:
+            cur.execute(
+                "SELECT 1 FROM sent_alerts WHERE chat_id=? AND event_hash=? AND kind=? LIMIT 1",
+                (chat_id, ev_hash, kind),
+            )
+            return cur.fetchone() is not None
