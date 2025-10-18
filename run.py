@@ -1,82 +1,100 @@
-# run.py — фрагмент
-
-import os, asyncio, logging
+import os
+import asyncio
 import contextlib
+import logging
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from aiogram.exceptions import TelegramConflictError
-from app.config import BOT_TOKEN
 from app.bot import build_bot, build_dispatcher
 from app.scheduler import scheduler
+from app.config import BOT_TOKEN
 
-# --- NEW: PG advisory lock ---
+# ---- PG advisory lock (blocking) ----
 import psycopg
 from contextlib import asynccontextmanager
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-POLL_LOCK_KEY = int(os.getenv("POLL_LOCK_KEY", "0"))  # краще = bot_id
+LOCK_KEY_ENV = os.getenv("POLL_LOCK_KEY")  # можеш задати явно в ENV
+# fallback: якщо не задано, ми візьмемо bot_id нижче після get_me()
 
 @asynccontextmanager
-async def acquire_pg_lock(dsn: str, key: int):
-    if not dsn or not key:
-        # без БД або ключа — не блокуємо (працює як раніше)
+async def pg_advisory_lock(dsn: str, lock_key: int):
+    if not dsn:
+        logging.warning("[lock] DATABASE_URL is empty → lock DISABLED!")
         yield
         return
+    if not lock_key:
+        logging.warning("[lock] lock_key is 0 → lock DISABLED!")
+        yield
+        return
+
+    logging.warning(f"[lock] trying to acquire pg_advisory_lock({lock_key}) on DSN host…")
+    # Блокувальна версія: чекаємо, доки замок звільнять
     async with await psycopg.AsyncConnection.connect(dsn) as conn:
-        while True:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT pg_advisory_lock(%s)", (lock_key,))
+            got = (await cur.fetchone())[0] if await cur.fetchone() else True
+        logging.warning(f"[lock] acquired (key={lock_key})")
+        try:
+            yield
+        finally:
             async with conn.cursor() as cur:
-                await cur.execute("SELECT pg_try_advisory_lock(%s)", (key,))
-                ok = (await cur.fetchone())[0]
-            if ok:
-                try:
-                    yield
-                finally:
-                    async with conn.cursor() as cur:
-                        await cur.execute("SELECT pg_advisory_unlock(%s)", (key,))
-                return
-            logging.warning("Another instance holds the polling lock; retry in 2s…")
-            await asyncio.sleep(2)
+                await cur.execute("SELECT pg_advisory_unlock(%s)", (lock_key,))
+            logging.warning(f"[lock] released (key={lock_key})")
 
 async def main():
     if not BOT_TOKEN:
         raise RuntimeError("Set BOT_TOKEN in environment")
 
+    # базове логування
     logging.info("Creating bot and dispatcher...")
     bot = await build_bot(BOT_TOKEN)
     dp = build_dispatcher()
 
-    # Діагностика
-    try:
-        me = await bot.get_me()
-        logging.warning(f"BOT DIAG: id={me.id} username=@{me.username}")
-    except Exception as e:
-        logging.error(f"BOT DIAG failed: {e}")
+    # Діагностика бота і ключа локера
+    me = await bot.get_me()
+    token_head = (BOT_TOKEN or "").split(":", 1)[0]
+    logging.warning(f"BOT DIAG: id={me.id} user=@{me.username} token_head={token_head}")
+    lock_key = int(LOCK_KEY_ENV) if LOCK_KEY_ENV else int(me.id)  # ключ = bot_id за замовчуванням
+    logging.warning(f"[lock] DATABASE_URL set: {bool(DATABASE_URL)} | lock_key={lock_key}")
 
-    # Скидаємо вебхук (на випадок міграцій)
+    # На всяк: знімаємо webhook і чистимо хвіст
     with contextlib.suppress(Exception):
         await bot.delete_webhook(drop_pending_updates=True)
         logging.info("Webhook deleted.")
 
-    logging.info("Starting scheduler task...")
-    bg = asyncio.create_task(scheduler(bot))
-
-    # --- ВАЖЛИВО: монополізуємо polling через PG-замок ---
+    # ---- ВАЖЛИВО: ВСЕ, що може почати взаємодію з Telegram (scheduler + polling),
+    # запускаємо ТІЛЬКИ В СЕРЕДИНІ ЛОКЕРА ----
     try:
-        async with acquire_pg_lock(DATABASE_URL, int(me.id)):  # ключ = bot_id
-            logging.info("Polling lock acquired — starting polling.")
-            await dp.start_polling(bot)
-    except TelegramConflictError as e:
-        logging.error(f"Polling conflict: {e}")
+        async with pg_advisory_lock(DATABASE_URL, lock_key):
+            logging.info("Starting scheduler task (inside lock)...")
+            bg = asyncio.create_task(scheduler(bot))
+            try:
+                logging.info("Starting polling (inside lock)...")
+                await dp.start_polling(bot)
+            except TelegramConflictError as e:
+                logging.error(f"Polling conflict: {e}")
+                raise
+            finally:
+                logging.info("Stopping scheduler...")
+                bg.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await bg
+    except Exception as e:
+        logging.exception(f"Fatal in main: {e}")
         raise
-    finally:
-        logging.info("Stopping scheduler...")
-        bg.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await bg
 
 if __name__ == "__main__":
     try:
+        # можна підняти рівень логів через ENV: LOG_LEVEL=DEBUG
+        level = os.getenv("LOG_LEVEL", "INFO").upper()
+        logging.basicConfig(
+            level=getattr(logging, level, logging.INFO),
+            format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+            datefmt="%H:%M:%S",
+        )
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass
