@@ -11,7 +11,7 @@ from aiogram.types import Message, CallbackQuery
 
 from .config import LOCAL_TZ, UTC
 from .ff_client import get_events_thisweek_cached as fetch_calendar
-from .filters import filter_events
+from .filters import filter_events, normalize_impact
 from .formatting import event_to_text
 from .utils import csv_to_list, chunk
 from .keyboards import (
@@ -85,6 +85,58 @@ async def _send_today(m: Message, subs: dict):
         await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
         header = ""
 
+async def _send_week(m: Message, subs: dict):
+    """
+    Показує ВСІ події за поточний тиждень (понеділок 00:00 → наступний понеділок 00:00)
+    у локальному часовому поясі.
+    """
+    # нормалізуємо рядок sqlite3.Row -> dict
+    subs = dict(subs) if not isinstance(subs, dict) else subs
+
+    lang = subs.get("lang_mode", "en")
+
+    # нормалізуємо impacts (Holiday -> Non-economic, med -> Medium ...)
+    impacts_raw = csv_to_list(subs.get("impact_filter", ""))
+    impacts = [normalize_impact(x) for x in impacts_raw if normalize_impact(x)]
+
+    countries = csv_to_list(subs.get("countries_filter", ""))
+
+    try:
+        events = await fetch_calendar(lang=lang)  # thisweek.json (кеш) під капотом
+    except Exception as e:
+        log.exception(f"[week] fetch_calendar failed: {e}")
+        await m.answer("Internal fetch error. See logs.")
+        return
+
+    # межі тижня у ЛОКАЛІ
+    now_local = datetime.now(LOCAL_TZ)
+    # weekday(): Mon=0 ... Sun=6
+    monday_local = (now_local - timedelta(days=now_local.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    next_monday_local = monday_local + timedelta(days=7)
+
+    start_utc = monday_local.astimezone(UTC)
+    end_utc = next_monday_local.astimezone(UTC)
+
+    # фільтр за часом (UTC)
+    weeks = [e for e in events if start_utc <= e.date < end_utc]
+    if not weeks:
+        await m.answer("This week: no events (time window).")
+        return
+
+    # застосовуємо фільтри користувача
+    filtered = filter_events(weeks, impacts, countries)
+    if not filtered:
+        await m.answer("This week: no events match your filters.")
+        return
+
+    header = "📅 <b>This week</b>\n"
+    for pack in chunk(filtered, 8):
+        body = "\n\n".join(event_to_text(ev, LOCAL_TZ) for ev in pack)
+        await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
+        header = ""
+
 
 # --------------------------- text commands ---------------------------
 
@@ -104,6 +156,14 @@ async def cmd_today(m: Message):
         ensure_sub(m.from_user.id, m.chat.id)
         subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
     await _send_today(m, subs)
+
+@router.message(Command("week"))
+async def cmd_week(m: Message):
+    subs = get_sub(m.from_user.id, m.chat.id)
+    if not subs:
+        ensure_sub(m.from_user.id, m.chat.id)
+        subs = get_sub(m.from_user.id, m.chat.id)
+    await _send_week(m, subs)
 
 
 # --------------------------- inline: main menu ---------------------------
@@ -127,6 +187,24 @@ async def cb_today(c: CallbackQuery):
         pass
 
     await _send_today(c.message, subs)
+    await c.message.answer("Back to menu:", reply_markup=main_menu_kb())
+
+
+@router.callback_query(F.data == "menu:week")
+async def cb_week(c: CallbackQuery):
+    subs = get_sub(c.from_user.id, c.message.chat.id)
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = get_sub(c.from_user.id, c.message.chat.id)
+
+    await c.answer("Fetching this week…", show_alert=False)
+
+    try:
+        await c.message.edit_text("📅 This week:", reply_markup=back_kb())
+    except Exception:
+        pass
+
+    await _send_week(c.message, subs)
     await c.message.answer("Back to menu:", reply_markup=main_menu_kb())
 
 

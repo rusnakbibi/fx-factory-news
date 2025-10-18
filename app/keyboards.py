@@ -10,7 +10,8 @@ def main_menu_kb() -> InlineKeyboardMarkup:
              InlineKeyboardButton(text="⏱ Daily Digest", callback_data="menu:subscribe")],
             [InlineKeyboardButton(text="⏰ Alerts", callback_data="menu:alerts"),
              InlineKeyboardButton(text="🔕 Stop", callback_data="menu:stop")],
-            [InlineKeyboardButton(text="📅 Today", callback_data="menu:today")],
+            [InlineKeyboardButton(text="📅 Today", callback_data="menu:today"),
+            InlineKeyboardButton(text="This week", callback_data="menu:week")],
         ]
     )
 

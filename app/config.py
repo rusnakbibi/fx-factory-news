@@ -26,6 +26,6 @@ UTC = timezone.utc
 
 # UI constants
 COMMON_CURRENCIES = ["USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF","CNY"]
-IMPACTS = ["High","Medium","Low","Holiday"]
+IMPACTS = ["High","Medium","Low","Non-economic"]
 ALERT_PRESETS = [5, 15, 30, 60]
 LANG_MODES = ["en","uk","auto"]  # 'auto' = detect from system TZ (example) or default to en
