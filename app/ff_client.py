@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+import os, json
+
 from .models import FFEvent
 from .utils import str_or_none
 from .config import FF_THISWEEK, UTC
@@ -39,6 +41,8 @@ _CACHE_TTL = timedelta(minutes=10)  # сміливо збільш до 15–30 �
 
 # Якщо попали на 429 з Retry-After — сюди запишемо «коли можна знову»
 _NEXT_ALLOWED_FETCH: datetime = datetime.min.replace(tzinfo=UTC)
+
+AGG_JSON_PATH = os.getenv("AGGREGATE_JSON_PATH", "aggregated_calendar.json")
 
 def _now_utc() -> datetime:
     return datetime.now(UTC)
@@ -169,3 +173,45 @@ async def fetch_calendar(lang: str = "en") -> List[FFEvent]:
     Якщо далі додаватимеш інші діапазони (week/month) — розшириш тут.
     """
     return await get_events_thisweek_cached(lang=lang)
+
+def load_aggregated_category(category: str, lang: str = "en") -> List[FFEvent]:
+    if not os.path.exists(AGG_JSON_PATH):
+        return []
+    try:
+        with open(AGG_JSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return []
+
+    items = data.get(category.lower(), []) or []
+    out: List[FFEvent] = []
+    for e in items:
+        date_raw = str(e.get("date") or "")
+        if not date_raw:
+            continue
+        try:
+            try:
+                dt = datetime.fromisoformat(date_raw.replace("Z", "+00:00")).astimezone(UTC)
+            except Exception:
+                from dateutil import parser as dtp
+                dt = dtp.parse(date_raw).astimezone(UTC)
+        except Exception:
+            continue
+
+        title = str(e.get("title") or "")
+        title_local = translate_title(title, lang)
+        out.append(
+            FFEvent(
+                date=dt,
+                title=title_local,
+                country=str(e.get("country") or ""),
+                currency=str(e.get("currency") or ""),
+                impact=str(e.get("impact") or ""),
+                forecast=None,
+                previous=None,
+                actual=None,
+                url=e.get("url"),
+                raw=e,
+            )
+        )
+    return sorted(out, key=lambda x: x.date)

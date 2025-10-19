@@ -2,6 +2,17 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from .config import IMPACTS, COMMON_CURRENCIES, ALERT_PRESETS, LANG_MODES
 
+IMPACTS = ["High", "Medium", "Low", "Non-economic"]
+COMMON_CURRENCIES = ["USD","EUR","GBP","JPY","CHF","CAD","AUD","NZD","CNY","SEK","NOK"]
+ALERT_PRESETS = [5, 10, 15, 30, 60, 120]
+LANG_MODES = ["en", "ua"]
+
+SOURCE_LABELS = {
+    "forex": "Forex",
+    "crypto": "Crypto",
+    "metals": "Metals",
+}
+
 # ---------- MAIN MENU ----------
 def main_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -32,13 +43,7 @@ def categories_row(selected: list[str]) -> list[InlineKeyboardButton]:
     ]
 
 # ---------- SETTINGS PANEL (toggle filters) ----------
-def settings_kb(
-    selected_impacts,
-    selected_currencies,
-    alert_minutes: int,
-    lang_mode: str,
-    categories: list[str] | None = None,   # ⬅️ ДОДАЛИ
-) -> InlineKeyboardMarkup:
+def settings_kb(selected_impacts, selected_currencies, alert_minutes, lang_mode, selected_source: str = "forex") -> InlineKeyboardMarkup:
     imp_buttons = [
         InlineKeyboardButton(
             text=("✅ " if i in selected_impacts else "☐ ") + i,
@@ -57,6 +62,15 @@ def settings_kb(
     rows.append(cur_buttons[:5])
     rows.append(cur_buttons[5:])
 
+    # 🔹 Sources (radio)
+    src_row = [
+        InlineKeyboardButton(
+            text=("● " if selected_source == s else "○ ") + SOURCE_LABELS[s],
+            callback_data=f"src:{s}"
+        ) for s in ("forex", "crypto", "metals")
+    ]
+    rows.append(src_row)
+
     al_buttons = [
         InlineKeyboardButton(
             text=("● " if alert_minutes == p else "○ ") + f"{p}m",
@@ -73,11 +87,9 @@ def settings_kb(
     ]
     rows.append(lang_buttons)
 
-    rows.append(categories_row(categories or []))
-
     rows.append([
         InlineKeyboardButton(text="⏱ /subscribe", callback_data="sub:ask"),
-        InlineKeyboardButton(text="🧹 reset filters", callback_data="reset"),
+        InlineKeyboardButton(text="🧹 reset filters", callback_data="reset")
     ])
     rows.append([InlineKeyboardButton(text="◀️ Back", callback_data="menu:home")])
 

@@ -29,3 +29,20 @@ COMMON_CURRENCIES = ["USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF","CNY"]
 IMPACTS = ["High","Medium","Low","Non-economic"]
 ALERT_PRESETS = [5, 15, 30, 60]
 LANG_MODES = ["en","uk","auto"]  # 'auto' = detect from system TZ (example) or default to en
+
+SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "").strip()
+
+# User-Agent та базові заголовки для запитів HTML
+UA_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_6) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+}
+
+# Куди писати агрегований JSON (локально або у тимчасову/постійну директорію на Render)
+AGGREGATE_JSON_PATH = os.getenv("AGGREGATE_JSON_PATH", "aggregated_calendar.json")
