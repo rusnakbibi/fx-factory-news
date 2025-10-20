@@ -92,14 +92,20 @@ def filter_events(
 
     out: List[FFEvent] = []
     for ev in events:
-        cur = normalize_currency(ev.currency)
-        if cur_set and cur and cur not in cur_set:
+        # ---------- валютний whitelist ----------
+        if cur_set:
+            # пробуємо взяти currency; якщо її немає — спробувати country
+            cur = normalize_currency(getattr(ev, "currency", "")) or normalize_currency(getattr(ev, "country", ""))
+            # якщо валюту не визначено або вона не у вибраному списку — відсіюємо
+            if not cur or cur not in cur_set:
+                continue
+
+        # ---------- impact ----------
+        imp = normalize_impact(getattr(ev, "impact", ""))
+        if imp_set and imp and imp not in imp_set:
             continue
 
-        imp = normalize_impact(ev.impact)
-        if imp and imp_set and imp not in imp_set:
-            continue
-
+        # ---------- категорія (залишаємо як було) ----------
         cat = categorize_event(ev)
         if cat_set and cat not in cat_set:
             continue

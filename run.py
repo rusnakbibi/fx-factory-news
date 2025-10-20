@@ -1,5 +1,3 @@
-# run.py — повна версія з PG advisory-lock та охайним завершенням
-
 import os
 import asyncio
 import logging
@@ -13,8 +11,8 @@ from aiogram.exceptions import TelegramConflictError
 from app.config import BOT_TOKEN
 from app.bot import build_bot, build_dispatcher
 from app.scheduler import scheduler
+from app.ff_client import start_autorefresh
 
-# --- PG advisory lock (через pg_try_advisory_lock у циклі) ---
 import psycopg
 from contextlib import asynccontextmanager
 
@@ -97,6 +95,8 @@ async def main():
 
             try:
                 logging.info("Starting polling (inside lock)…")
+                await start_autorefresh()
+
                 await dp.start_polling(bot)
             except TelegramConflictError as e:
                 logging.error(f"Polling conflict: {e}")
