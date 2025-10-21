@@ -9,7 +9,8 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
-from .config import LOCAL_TZ, UTC
+from .config import LOCAL_TZ, UTC, TOPIC_DEFS, TOPIC_EXPLAINERS
+from .translator import UA_DICT
 from .ff_client import get_events_thisweek_cached as fetch_calendar
 from .filters import filter_events, normalize_impact
 from .formatting import event_to_text
@@ -20,6 +21,8 @@ from .keyboards import (
     settings_kb,
     subscribe_time_kb,
     alerts_presets_kb,
+    topics_kb,
+    back_to_topics_kb,
 )
 from .db import ensure_sub, get_sub, unsubscribe, set_sub
 
@@ -33,13 +36,49 @@ def _rowdict(row) -> dict:
         return {}
     return dict(row) if not isinstance(row, dict) else row
 
-def _fmt_event(ev):
-    lt = ev.date.astimezone(LOCAL_TZ)
-    return f"[{ev.currency}|{ev.impact}] {lt:%Y-%m-%d %H:%M} local / {ev.date:%Y-%m-%d %H:%M}Z — {ev.title[:80]}"
+def _lang(subs: dict) -> str:
+    return (subs.get("lang_mode") or "en").lower()
 
-def _selected_source_from_subs(_: dict) -> str:
-    # Агрегатор відключено — працюємо лише з офіційним ForexFactory
-    return "forex"
+def _t_en_ua(lang: str, en: str, ua: str) -> str:
+    return en if lang != "ua" else ua
+
+def _tutorial_text(lang: str = "en") -> str:
+    if lang == "ua":
+        return (
+            "❓ <b>Довідка</b>\n"
+            "Коротко про кнопки в боті:\n\n"
+            "• <b>Сьогодні</b> — показує всі події за сьогодні з урахуванням ваших фільтрів.\n"
+            "• <b>Цього тижня</b> — події поточного тижня (неділя→неділя) з фільтрами.\n"
+            "• <b>Налаштування</b> — тут ви:\n"
+            "   — обираєте рівень впливу подій: High / Medium / Low / Non-economic;\n"
+            "   — обираєте валюти (USD, EUR тощо), за якими показувати події;\n"
+            "   — перемикаєте мову інтерфейсу (EN/UA);\n"
+            "   — задаєте час попередження — за скільки хвилин до початку <b>кожної події</b> надійде сповіщення (наприклад, 15 хв до публікації CPI).\n"
+            "   (Час попередження не впливає на щоденний дайджест — він приходить у задану годину.)\n"
+            "• <b>Нагадування</b> — швидкий вибір інтервалу попередження (5/10/15/30/60/120 хв) перед <b>кожною подією</b> у Today/This week.\n"
+            "• <b>Щоденний дайджест</b> — оберіть час доби, коли щодня отримувати стислий список запланованих подій.\n"
+            "• <b>Теми</b> — пояснення ключових макроіндикаторів (CPI, GDP, PMI тощо) простою мовою.\n"
+            "• <b>Вимкнути</b> — зупиняє сповіщення для цього чату.\n\n"
+            "<i>Порада:</i> якщо результат порожній — розширте фільтри (додайте валюти або рівні впливу)."
+        )
+    else:
+        return (
+            "❓ <b>Tutorial</b>\n"
+            "A quick guide to the bot controls:\n\n"
+            "• <b>Today</b> — shows today’s events with your filters applied.\n"
+            "• <b>This week</b> — events for the current week (Sun→Sun) with filters.\n"
+            "• <b>Settings</b> — here you can:\n"
+            "   — choose event impact levels: High / Medium / Low / Non-economic;\n"
+            "   — select currencies (USD, EUR, etc.) to include;\n"
+            "   — switch interface language (EN/UA);\n"
+            "   — set the <u>alert lead time</u> — how many minutes <b>before each event</b> you’ll get a reminder (e.g., 15 min before CPI release).\n"
+            "   (Alert lead time does <b>not</b> affect the Daily Digest — it is sent at the scheduled time.)\n"
+            "• <b>Alerts</b> — quick presets (5/10/15/30/60/120 min) for reminders <b>before each event</b> in Today/This week.\n"
+            "• <b>Daily Digest</b> — pick a time of day to receive a compact summary of upcoming events.\n"
+            "• <b>Topics</b> — concise explainers for key macro indicators (CPI, GDP, PMI, etc.).\n"
+            "• <b>Stop</b> — disables notifications for this chat.\n\n"
+            "<i>Tip:</i> If results look empty, widen filters (add currencies or impact levels)."
+        )
 
 # --------------------------- core actions ---------------------------
 
@@ -48,7 +87,7 @@ async def _send_today(m: Message, subs: dict):
     TODAY: офіційний ForexFactory (thisweek.json) з вікном 00:00–24:00 локального дня.
     """
     subs = _rowdict(subs)
-    lang = subs.get("lang_mode", "en")
+    lang = _lang(subs)
 
     impacts = csv_to_list(subs.get("impact_filter", ""))
     countries = csv_to_list(subs.get("countries_filter", ""))
@@ -60,7 +99,7 @@ async def _send_today(m: Message, subs: dict):
         events = await fetch_calendar(lang=lang)
     except Exception as e:
         log.exception("[today] load events failed: %s", e)
-        await m.answer("Internal fetch error. See logs.")
+        await m.answer(_t_en_ua(lang, "Internal fetch error. See logs.", "Внутрішня помилка завантаження. Див. логи."))
         return
 
     now_local = datetime.now(LOCAL_TZ)
@@ -77,10 +116,10 @@ async def _send_today(m: Message, subs: dict):
     filtered.sort(key=lambda e: e.date)
 
     if not filtered:
-        await m.answer("Today: no events match your filters.")
+        await m.answer(_t_en_ua(lang, "Today: no events match your filters.", "Сьогодні: подій за вашими фільтрами немає."))
         return
 
-    header = "📅 <b>Today</b>\n"
+    header = _t_en_ua(lang, "📅 <b>Today</b>\n", "📅 <b>Сьогодні</b>\n")
     for pack in chunk(filtered, 8):
         body = "\n\n".join(event_to_text(ev, LOCAL_TZ) for ev in pack)
         await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
@@ -91,7 +130,7 @@ async def _send_week(m: Message, subs: dict):
     THIS WEEK: офіційний ForexFactory, неділя→неділя у локальній TZ.
     """
     subs = _rowdict(subs)
-    lang = subs.get("lang_mode", "en")
+    lang = _lang(subs)
 
     impacts_raw = csv_to_list(subs.get("impact_filter", ""))
     impacts = [normalize_impact(x) for x in impacts_raw if normalize_impact(x)]
@@ -104,7 +143,7 @@ async def _send_week(m: Message, subs: dict):
         events = await fetch_calendar(lang=lang)
     except Exception as e:
         log.exception("[week] load events failed: %s", e)
-        await m.answer("Internal fetch error. See logs.")
+        await m.answer(_t_en_ua(lang, "Internal fetch error. See logs.", "Внутрішня помилка завантаження. Див. логи."))
         return
 
     # Sunday→Sunday в LOCAL_TZ
@@ -126,10 +165,10 @@ async def _send_week(m: Message, subs: dict):
     filtered.sort(key=lambda e: e.date)
 
     if not filtered:
-        await m.answer("This week: no events match your filters.")
+        await m.answer(_t_en_ua(lang, "This week: no events match your filters.", "Цього тижня подій за вашими фільтрами немає."))
         return
 
-    header = "📅 <b>This week</b>\n"
+    header = _t_en_ua(lang, "📅 <b>This week</b>\n", "📅 <b>Цього тижня</b>\n")
     for pack in chunk(filtered, 8):
         body = "\n\n".join(event_to_text(ev, LOCAL_TZ) for ev in pack)
         await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
@@ -140,11 +179,18 @@ async def _send_week(m: Message, subs: dict):
 @router.message(Command("start"))
 async def cmd_start(m: Message):
     ensure_sub(m.from_user.id, m.chat.id)
-    await m.answer("Choose an action:", reply_markup=main_menu_kb())
+    subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    lang = _lang(subs)
+    await m.answer(
+        _t_en_ua(lang, "Back to menu:", "Назад до меню:"),
+        reply_markup=main_menu_kb(lang=lang),
+    )
 
 @router.message(Command("menu"))
 async def cmd_menu(m: Message):
-    await m.answer("Main menu:", reply_markup=main_menu_kb())
+    subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    lang = _lang(subs)
+    await m.answer(_t_en_ua(lang, "Main menu:", "Головне меню:"), reply_markup=main_menu_kb(lang=lang))
 
 @router.message(Command("today"))
 async def cmd_today(m: Message):
@@ -174,11 +220,32 @@ async def cmd_ff_refresh(m: Message):
     except Exception as e:
         await m.answer(f"Refresh error: {e}")
 
+@router.message(Command("tutorial"))
+async def cmd_tutorial(m: Message):
+    subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    lang = subs.get("lang_mode", "en")
+    await m.answer(_tutorial_text(lang), parse_mode="HTML", reply_markup=back_kb(lang))
+
+# ---- з меню
+@router.callback_query(F.data == "menu:tutorial")
+async def cb_tutorial(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = subs.get("lang_mode", "en")
+    await c.message.edit_text(
+        _tutorial_text(lang),
+        parse_mode="HTML",
+        reply_markup=back_kb(lang),
+        disable_web_page_preview=True
+    )
+    await c.answer()
+
 # --------------------------- inline: main menu ---------------------------
 
 @router.callback_query(F.data == "menu:home")
 async def cb_home(c: CallbackQuery):
-    await c.message.edit_text("Main menu:", reply_markup=main_menu_kb())
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(_t_en_ua(lang, "Main menu:", "Головне меню:"), reply_markup=main_menu_kb(lang=lang))
     await c.answer()
 
 @router.callback_query(F.data == "menu:today")
@@ -187,13 +254,14 @@ async def cb_today(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
-    await c.answer("Fetching today…", show_alert=False)
+    lang = _lang(subs)
+    await c.answer(_t_en_ua(lang, "Fetching today…", "Завантажую «Сьогодні»…"), show_alert=False)
     try:
-        await c.message.edit_text("📅 Today:", reply_markup=back_kb())
+        await c.message.edit_text(_t_en_ua(lang, "📅 Today:", "📅 Сьогодні:"), reply_markup=back_kb(lang=lang))
     except Exception:
         pass
     await _send_today(c.message, subs)
-    await c.message.answer("Back to menu:", reply_markup=main_menu_kb())
+    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=main_menu_kb(lang=lang))
 
 @router.callback_query(F.data == "menu:week")
 async def cb_week(c: CallbackQuery):
@@ -201,13 +269,14 @@ async def cb_week(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = get_sub(c.from_user.id, c.message.chat.id)
-    await c.answer("Fetching this week…", show_alert=False)
+    lang = _lang(_rowdict(subs))
+    await c.answer(_t_en_ua(lang, "Fetching this week…", "Завантажую «Цього тижня»…"), show_alert=False)
     try:
-        await c.message.edit_text("📅 This week:", reply_markup=back_kb())
+        await c.message.edit_text(_t_en_ua(lang, "📅 This week:", "📅 Цього тижня:"), reply_markup=back_kb(lang=lang))
     except Exception:
         pass
-    await _send_week(c.message, subs)
-    await c.message.answer("Back to menu:", reply_markup=main_menu_kb())
+    await _send_week(c.message, _rowdict(subs))
+    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=main_menu_kb(lang=lang))
 
 # --------------------------- inline: Settings ---------------------------
 
@@ -217,22 +286,22 @@ async def menu_settings(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
 
-    # залишаємо сигнатуру як була, але джерело форсимо в 'forex'
-    selected_source = "forex"
     kb = settings_kb(
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
-        subs.get("lang_mode", "en"),
+        lang_mode=lang,
     )
-    await c.message.edit_text("⚙️ Settings:", reply_markup=kb)
+    await c.message.edit_text(_t_en_ua(lang, "⚙️ Settings:", "⚙️ Налаштування:"), reply_markup=kb)
     await c.answer()
 
 # toggle impact
 @router.callback_query(F.data.startswith("imp:"))
 async def cb_impact(c: CallbackQuery):
     subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
     impacts = set(csv_to_list(subs.get("impact_filter", "")))
     val = c.data.split(":", 1)[1]
     if val in impacts:
@@ -246,15 +315,16 @@ async def cb_impact(c: CallbackQuery):
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
-        subs.get("lang_mode", "en"),
+        lang_mode=_lang(subs),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Impact updated")
+    await c.answer(_t_en_ua(lang, "Impact updated", "Вплив оновлено"))
 
 # toggle currency
 @router.callback_query(F.data.startswith("cur:"))
 async def cb_currency(c: CallbackQuery):
     subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
     curr = set(csv_to_list(subs.get("countries_filter", "")))
     val = c.data.split(":", 1)[1]
     if val in curr:
@@ -268,10 +338,10 @@ async def cb_currency(c: CallbackQuery):
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
-        subs.get("lang_mode", "en"),
+        lang_mode=_lang(subs),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Currencies updated")
+    await c.answer(_t_en_ua(lang, "Currencies updated", "Валюти оновлено"))
 
 # language
 @router.callback_query(F.data.startswith("lang:"))
@@ -285,18 +355,20 @@ async def cb_lang(c: CallbackQuery):
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
-        subs.get("lang_mode", "en"),
+        lang_mode=_lang(subs),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Language updated")
+    await c.answer(_t_en_ua(_lang(subs), "Language updated", "Мову змінено"))
 
 # alert presets
 @router.callback_query(F.data.startswith("al:"))
 async def cb_alert(c: CallbackQuery):
+    subs0 = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs0)
     try:
         val = int(c.data.split(":", 1)[1])
     except Exception:
-        return await c.answer("Invalid value")
+        return await c.answer(_t_en_ua(lang, "Invalid value", "Некоректне значення"))
     set_sub(c.from_user.id, c.message.chat.id, alert_minutes=val)
 
     subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
@@ -304,13 +376,13 @@ async def cb_alert(c: CallbackQuery):
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
-        subs.get("lang_mode", "en"),
+        lang_mode=_lang(subs),
     )
     try:
         await c.message.edit_reply_markup(reply_markup=kb)
     except Exception:
         pass
-    await c.answer("Alert preset saved")
+    await c.answer(_t_en_ua(lang, "Alert preset saved", "Нагадування збережено"))
 
 # reset
 @router.callback_query(F.data == "reset")
@@ -328,15 +400,16 @@ async def cb_reset(c: CallbackQuery):
         csv_to_list(subs.get("impact_filter", "")),
         csv_to_list(subs.get("countries_filter", "")),
         int(subs.get("alert_minutes", 30)),
-        subs.get("lang_mode", "en"),
+        lang_mode=_lang(subs),
     )
     await c.message.edit_reply_markup(reply_markup=kb)
-    await c.answer("Settings reset")
+    await c.answer(_t_en_ua(_lang(subs), "Settings reset", "Налаштування скинуто"))
 
 # source toggle — відповідаємо, що доступний лише Forex
 @router.callback_query(F.data.startswith("src:"))
 async def cb_source(c: CallbackQuery):
-    await c.answer("Only Forex is available now.", show_alert=True)
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    await c.answer(_t_en_ua(_lang(subs), "Only Forex is available now.", "Зараз доступний лише Forex."), show_alert=True)
 
 # --------------------------- inline: Daily Digest ---------------------------
 
@@ -346,21 +419,24 @@ async def menu_subscribe(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
     cur = subs.get("daily_time", "09:00")
     presets = ["08:00", "09:00", "10:00", "12:00", "15:00", "18:00"]
     await c.message.edit_text(
-        f"⏱ Choose daily digest time (current {cur}):",
-        reply_markup=subscribe_time_kb(presets),
+        _t_en_ua(lang, f"⏱ Choose daily digest time (current {cur}):", f"⏱ Оберіть час дайджесту (зараз {cur}):"),
+        reply_markup=subscribe_time_kb(presets, lang=lang),
     )
     await c.answer()
 
 @router.callback_query(F.data.startswith("sub:set:"))
 async def cb_sub_set(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
     t = c.data.split(":", 2)[2]
     if not re.fullmatch(r"\d{2}:\d{2}", t):
-        return await c.answer("Invalid time")
+        return await c.answer(_t_en_ua(lang, "Invalid time", "Некоректний час"))
     set_sub(c.from_user.id, c.message.chat.id, daily_time=t)
-    await c.message.edit_text(f"✅ Daily digest at {t}.", reply_markup=main_menu_kb())
+    await c.message.edit_text(_t_en_ua(lang, f"✅ Daily digest at {t}.", f"✅ Дайджест о {t}."), reply_markup=main_menu_kb(lang=lang))
     await c.answer()
 
 # --------------------------- inline: Alerts ---------------------------
@@ -371,14 +447,73 @@ async def menu_alerts(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
     cur = int(subs.get("alert_minutes", 30))
-    await c.message.edit_text("⏰ Alert before event:", reply_markup=alerts_presets_kb(cur))
+    await c.message.edit_text(_t_en_ua(lang, "⏰ Alert before event:", "⏰ Нагадування перед подією:"),
+                              reply_markup=alerts_presets_kb(cur, lang=lang))
     await c.answer()
 
 # --------------------------- inline: Stop ---------------------------
 
 @router.callback_query(F.data == "menu:stop")
 async def menu_stop(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
     unsubscribe(c.from_user.id, c.message.chat.id)
-    await c.message.edit_text("Notifications disabled for this chat.", reply_markup=main_menu_kb())
+    await c.message.edit_text(_t_en_ua(lang, "Notifications disabled for this chat.", "Сповіщення для цього чату вимкнено."),
+                              reply_markup=main_menu_kb(lang=lang))
+    await c.answer()
+
+# --------------------------- Topics ---------------------------
+
+def _t(dct: dict, lang: str, fallback: str = "en") -> str:
+    """Проста локалізація: беремо dct[lang] або dct[fallback]."""
+    return dct.get(lang) or dct.get(fallback) or ""
+
+@router.callback_query(F.data == "menu:topics")
+async def menu_topics(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(
+        _t_en_ua(lang, "📚 Topics:", "📚 Теми:"),
+        reply_markup=topics_kb(lang=lang)
+    )
+    await c.answer()
+
+@router.callback_query(F.data.startswith("topic:"))
+async def show_topic(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = subs.get("lang_mode", "en")
+    _, topic_key = c.data.split(":", 1)
+
+    td = TOPIC_DEFS.get(topic_key, {})
+    title = (td.get("title", {}) or {}).get("ua" if lang == "ua" else "en", "Topic")
+    blurb = (td.get("blurb", {}) or {}).get("ua" if lang == "ua" else "en", "")
+
+    # Беремо список (EN за замовчуванням, UA – якщо вибрано)
+    base_lang = "ua" if lang == "ua" else "en"
+    expl = TOPIC_EXPLAINERS.get(topic_key, {}).get(base_lang, [])
+    if not expl:
+        expl = [("—", "No explainer yet / Пояснення буде додано")]
+
+    lines = [f"📚 <b>{title}</b>", blurb, ""]
+
+    for name, desc in expl:
+        display_name = name
+        # Якщо користувач обрав UA — додаємо переклад у дужках:
+        if lang == "ua":
+            ua = UA_DICT.get(name)
+            if ua and ua != name:
+                display_name = f"{name} ({ua})"
+        lines.append(f"• <b>{display_name}</b> — {desc}")
+
+    text = "\n".join(lines)
+
+    from .keyboards import back_to_topics_kb
+    await c.message.edit_text(
+        text,
+        parse_mode="HTML",
+        reply_markup=back_to_topics_kb(lang=lang),
+        disable_web_page_preview=True
+    )
     await c.answer()
