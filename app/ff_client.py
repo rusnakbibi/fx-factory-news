@@ -44,6 +44,9 @@ def _now_utc() -> datetime:
 _CACHE_TTL_SECONDS = int(os.getenv("FF_FX_TTL", "120"))  # дефолт 120 с (2 хв)
 _TW_CACHE: Dict[Tuple[str], Tuple[float, List[FFEvent]]] = {}  # key=(lang,) -> (expires_epoch, events)
 _CACHE_LOCK = asyncio.Lock()
+_CACHE_EVENTS: List[FFEvent] = []
+_CACHE_EXPIRES: datetime = datetime.min.replace(tzinfo=UTC)
+_CACHE_TTL = timedelta(minutes=10)
 
 # -------------------- low-level fetch: thisweek.json --------------------
 async def _fetch_thisweek_json() -> List[Dict[str, Any]]:
@@ -175,14 +178,17 @@ async def fetch_calendar(lang: str = "en") -> List[FFEvent]:
 
 def clear_ff_cache() -> int:
     """
-    Скидає in-memory кеш ForexFactory (thisweek).
-    Повертає кількість записів, які видалили.
-    Використовуй у /ff_refresh.
+    Повністю очищає in-memory кеш thisweek.json.
+    НЕ чіпає логіку отримання подій; наступний виклик get_events_thisweek_cached
+    зробить мережевий запит і знову заповнить кеш.
+    Повертає кількість очищених записів.
     """
-    n = len(_TW_CACHE)
-    _TW_CACHE.clear()
-    log.info("[ff_client] cache cleared (%d entries)", n)
-    return n
+    try:
+        n = len(_TW_CACHE)
+        _TW_CACHE.clear()
+        return n
+    except Exception:
+        return 0
 
 
 # -------------------- auto-refresh loop (optional) --------------------
@@ -237,3 +243,35 @@ async def stop_autorefresh() -> None:
             except asyncio.CancelledError:
                 pass
         _AUTOREFRESH_TASK = None
+
+def get_cache_meta(lang: str = "en") -> Dict[str, Any]:
+    """
+    Повертає метадані поточного кешу thisweek.json:
+      - count: кількість подій у кеші (0, якщо прострочено/порожньо)
+      - valid_until: ISO-час в UTC, доки кеш чинний (або '—', якщо кешу немає)
+      - ttl_minutes: тривалість TTL у хвилинах (з _CACHE_TTL_SECONDS)
+    НЕ змінює логіку get_events_thisweek_cached.
+    Очікує структуру _TW_CACHE: {(lang,): (expires_at_epoch, [FFEvent, ...])}
+    """
+    try:
+        now = time.time()
+        ttl_minutes = int((_CACHE_TTL_SECONDS or 600) // 60)
+
+        item = _TW_CACHE.get((lang,))
+        if not item and _TW_CACHE:
+            # якщо для цієї мови ще нема, візьмемо найсвіжіший запис
+            item = max(_TW_CACHE.values(), key=lambda x: x[0])
+
+        if not item:
+            return {"count": 0, "valid_until": "—", "ttl_minutes": ttl_minutes}
+
+        expires_at, events = item
+        valid_until_iso = datetime.fromtimestamp(expires_at, tz=UTC).replace(microsecond=0).isoformat()
+
+        # якщо протух — рахуємо як 0 подій, але показуємо до якого часу був чинний
+        if now >= expires_at:
+            return {"count": 0, "valid_until": valid_until_iso, "ttl_minutes": ttl_minutes}
+
+        return {"count": len(events or []), "valid_until": valid_until_iso, "ttl_minutes": ttl_minutes}
+    except Exception:
+        return {"count": 0, "valid_until": "—", "ttl_minutes": int((_CACHE_TTL_SECONDS or 600) // 60)}

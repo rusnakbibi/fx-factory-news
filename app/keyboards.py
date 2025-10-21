@@ -63,6 +63,35 @@ L = {
     },
 }
 
+TOPIC_ORDER = ["prices","gdp","pmi","labor","rates","trade","cbanks","misc"]
+
+TOPIC_LABELS = {
+    "en": {
+        "prices": "Price Indexes (CPI/PPI)",
+        "gdp":    "GDP",
+        "pmi":    "PMI",
+        "labor":  "Labor Market",
+        "rates":  "Rates / Inflation",
+        "trade":  "Trade / Production",
+        "cbanks": "Central Banks",
+        "misc":   "Other Indicators",
+        "use_as_filter": "🎯 Use as filter",
+        "clear": "Clear",
+    },
+    "ua": {
+        "prices": "Індекси цін (CPI/PPI)",
+        "gdp":    "ВВП (GDP)",
+        "pmi":    "PMI",
+        "labor":  "Ринок праці",
+        "rates":  "Ставки/Інфляція",
+        "trade":  "Торгівля/Виробн.",
+        "cbanks": "Центробанки",
+        "misc":   "Інші показники",
+        "use_as_filter": "🎯 Використовувати як фільтр",
+        "clear": "Очистити",
+    }
+}
+
 def _t(lang: str, key: str) -> str:
     return L["ua" if lang == "ua" else "en"][key]
 
@@ -86,26 +115,26 @@ def main_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
     t_week       = "🗓 This week" if lang != "ua" else "🗓 Цього тижня"
     t_tutorial   = "❓ Tutorial" if lang != "ua" else "❓ Довідка"
     t_topics     = "📚 Topics" if lang != "ua" else "📚 Теми"
+    t_about      = "ℹ️ About" if lang != "ua" else "ℹ️ Про бота"
+    t_faq        = "❓ FAQ" if lang != "ua" else "❓ FAQ"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text=t_settings, callback_data="menu:settings"),
-                InlineKeyboardButton(text=t_digest,   callback_data="menu:subscribe"),
-            ],
-            [
-                InlineKeyboardButton(text=t_alerts,   callback_data="menu:alerts"),
-                InlineKeyboardButton(text=t_stop,     callback_data="menu:stop"),
-            ],
+            [InlineKeyboardButton(text=t_settings, callback_data="menu:settings")],
+            [InlineKeyboardButton(text=t_digest,   callback_data="menu:subscribe")],
+            [InlineKeyboardButton(text=t_alerts,   callback_data="menu:alerts")],
+            [InlineKeyboardButton(text=t_stop,     callback_data="menu:stop")],
             [
                 InlineKeyboardButton(text=t_today,    callback_data="menu:today"),
-                InlineKeyboardButton(text=t_week,     callback_data="menu:week"),
+                InlineKeyboardButton(text=t_week,     callback_data="menu:week")
             ],
             [
                 InlineKeyboardButton(text=t_topics,   callback_data="menu:topics"),
+                InlineKeyboardButton(text=t_faq,      callback_data="menu:faq")
             ],
             [
                 InlineKeyboardButton(text=t_tutorial, callback_data="menu:tutorial"),
+                InlineKeyboardButton(text=t_about, callback_data="menu:about")
             ],
         ]
     )
@@ -125,13 +154,14 @@ def settings_kb(
 ) -> InlineKeyboardMarkup:
     lang = lang_mode
 
+    # --- Impacts (2x2 layout) ---
     imp_map = [
         ("High", _t(lang, "imp_high")),
         ("Medium", _t(lang, "imp_med")),
         ("Low", _t(lang, "imp_low")),
         ("Non-economic", _t(lang, "imp_noneco")),
     ]
-    imp_buttons = [
+    imp_btns = [
         InlineKeyboardButton(
             text=f"{_onoff(src in selected_impacts)} {label}",
             callback_data=f"imp:{src}"
@@ -139,7 +169,7 @@ def settings_kb(
         for src, label in imp_map
     ]
 
-    # currencies 3x3
+    # --- Currencies 3x3 ---
     def label_curr(code: str) -> str:
         return f"{CURR_FLAGS.get(code,'')} {code}".strip()
 
@@ -152,21 +182,24 @@ def settings_kb(
     ]
 
     rows = []
-    rows.append(imp_buttons)
+    # impacts split into two rows for readability
+    rows.append(imp_btns[0:2])   # High, Medium
+    rows.append(imp_btns[2:4])   # Low, Non-economic
 
-    # 3x3 grid (two rows of 3, then the rest)
+    # currencies grid 3x3
     rows.append(cur_buttons[0:3])
     rows.append(cur_buttons[3:6])
     rows.append(cur_buttons[6:9])
 
-    # alerts row
+    # --- Alert presets (2x3 layout) ---
     al_buttons = [
         InlineKeyboardButton(
             text=_radio(alert_minutes == p) + _fmt_minutes(lang, p),
             callback_data=f"al:{p}"
         ) for p in ALERT_PRESETS
     ]
-    rows.append(al_buttons)
+    rows.append(al_buttons[0:3])
+    rows.append(al_buttons[3:6])
 
     # language row
     lang_buttons = [
@@ -202,16 +235,20 @@ def subscribe_time_kb(presets: list[str], lang: str = "en") -> InlineKeyboardMar
     rows.append([InlineKeyboardButton(text=f"◀️ {_t(lang,'back')}", callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-# ---------- ALERTS PRESETS ----------
+# ---------- ALERTS PRESETS (standalone) ----------
 def alerts_presets_kb(current_minutes: int | None = None, lang: str = "en") -> InlineKeyboardMarkup:
-    row = [
+    btns = [
         InlineKeyboardButton(
             text=_radio(current_minutes == p) + _fmt_minutes(lang, p),
             callback_data=f"al:{p}"
         ) for p in ALERT_PRESETS
     ]
     return InlineKeyboardMarkup(
-        inline_keyboard=[row, [InlineKeyboardButton(text=f"◀️ {_t(lang,'back')}", callback_data="menu:home")]]
+        inline_keyboard=[
+            btns[0:3],
+            btns[3:6],
+            [InlineKeyboardButton(text=f"◀️ {_t(lang,'back')}", callback_data="menu:home")]
+        ]
     )
 
 # ---------- TOPICS ----------

@@ -11,7 +11,7 @@ from aiogram.types import Message, CallbackQuery
 
 from .config import LOCAL_TZ, UTC, TOPIC_DEFS, TOPIC_EXPLAINERS
 from .translator import UA_DICT
-from .ff_client import get_events_thisweek_cached as fetch_calendar
+from .ff_client import get_events_thisweek_cached as fetch_calendar, get_cache_meta
 from .filters import filter_events, normalize_impact
 from .formatting import event_to_text
 from .utils import csv_to_list, chunk
@@ -41,6 +41,14 @@ def _lang(subs: dict) -> str:
 
 def _t_en_ua(lang: str, en: str, ua: str) -> str:
     return en if lang != "ua" else ua
+
+def _fmt_ttl(seconds: int) -> str:
+    m, s = divmod(max(0, seconds), 60)
+    if m and s:
+        return f"≈ {m} хв {s} с"
+    if m:
+        return f"≈ {m} хв"
+    return f"≈ {s} с"
 
 def _tutorial_text(lang: str = "en") -> str:
     if lang == "ua":
@@ -79,6 +87,80 @@ def _tutorial_text(lang: str = "en") -> str:
             "• <b>Stop</b> — disables notifications for this chat.\n\n"
             "<i>Tip:</i> If results look empty, widen filters (add currencies or impact levels)."
         )
+
+def _about_text(lang: str = "en") -> str:
+    if lang == "ua":
+        return (
+            "ℹ️ <b>Про бота</b>\n"
+            "Цей бот — помічник для стеження за ключовими макроекономічними подіями з офіційного джерела "
+            "<b>ForexFactory</b> (thisweek.json).\n\n"
+            "• <b>Дані:</b> основні економічні показники (CPI, GDP, PMI, "
+            "зайнятість, рішення центробанків тощо). Дані оновлюються автоматично при появі нових подій.\n"
+            "• <b>Фільтри:</b> у <i>Налаштуваннях</i> можна обрати рівень впливу новин (High/Medium/Low/Non-eco), "
+            "валюти, мову відображення та час попередження — за скільки хвилин до публікації події бот надішле сповіщення.\n\n"
+            "<i>Застереження:</i> інформація може містити затримки або неточності джерела. "
+            "Використовуйте лише як допоміжний аналітичний інструмент."
+        )
+    else:
+        return (
+            "ℹ️ <b>About</b>\n"
+            "This bot helps you track key macroeconomic events, sourced from "
+            "<b>ForexFactory</b> (official thisweek.json).\n\n"
+            "• <b>Data:</b> core economic indicators such as CPI, GDP, PMI, "
+            "labor market data, and central bank releases. Updates automatically as new events appear.\n"
+            "• <b>Filters:</b> in <i>Settings</i> you can choose news impact levels (High/Medium/Low/Non-eco), "
+            "currencies, language, and alert time — how many minutes before the event you’ll receive a notification.\n\n"
+            "<i>Disclaimer:</i> information may include delays or inaccuracies from the source. "
+            "Use it as an analytical helper, not as trading advice."
+        )
+
+def _faq_text(lang: str = "en") -> str:
+    if lang == "ua":
+        return (
+            "<b>❓ Питання-Відповіді</b>\n\n"
+            "<b>Звідки дані?</b>\n"
+            "З офіційного JSON ForexFactory (thisweek.json).\n\n"
+            "<b>Чому час інший, ніж на сайті?</b>\n"
+            "Бот показує час у <i>вашому локальному часовому поясі</i>. "
+            "FF може відображати сторінку у своїй TZ, якщо не співпадає 'Synchronized Time'.\n\n"
+            "<b>Що роблять фільтри у Settings?</b>\n"
+            "• Impact — рівень важливості (High/Medium/Low/Non-eco).\n"
+            "• Currencies — валюти подій (USD, EUR, ...).\n"
+            "• Language — мова інтерфейсу й заголовків подій (за можливості переклад).\n"
+            "• Alerts — за скільки хвилин до події надсилати нагадування.\n\n"
+            "<b>Чому бачу подію не зі списку моїх валют?</b>\n"
+            "Перевірте вибір валют у Settings. Також частина подій може бути 'нейтральною' без валюти — "
+            "вони показуються незалежно (наприклад, свята або прес-конференції).\n\n"
+            "<b>Що таке Topics?</b>\n"
+            "Стислі довідники по категоріях (CPI/PPI, GDP, PMI, ринок праці тощо) з поясненнями показників.\n\n"
+            "<b>Як оновити дані?</b>\n"
+            "Бот оновлює автоматично; за потреби — команда <code>/ff_refresh</code>.\n\n"
+            "<b>Конфіденційність</b>\n"
+            "Зберігаються тільки налаштування фільтрів/мови для вашого чату; особисті дані не використовуються."
+        )
+    else:
+        return (
+            "<b>❓ FAQ</b>\n\n"
+            "<b>Where do data come from?</b>\n"
+            "Official ForexFactory JSON (thisweek.json).\n\n"
+            "<b>Why do times differ from the website?</b>\n"
+            "The bot renders times in <i>your local timezone</i>. "
+            "On FF, page time may differ if 'Synchronized Time' doesn’t match your device.\n\n"
+            "<b>What do Settings filters do?</b>\n"
+            "• Impact — importance level (High/Medium/Low/Non-eco).\n"
+            "• Currencies — event currencies (USD, EUR, …).\n"
+            "• Language — interface and event titles language (translated when possible).\n"
+            "• Alerts — how many minutes before an event to notify.\n\n"
+            "<b>Why do I see a currency I didn’t select?</b>\n"
+            "Re-check currencies. Some items are ‘neutral’ (no currency) like holidays/pressers and may still appear.\n\n"
+            "<b>What are Topics?</b>\n"
+            "Short explainers by category (CPI/PPI, GDP, PMI, labor, etc.).\n\n"
+            "<b>How to refresh?</b>\n"
+            "Auto refresh is used; on demand use <code>/ff_refresh</code>.\n\n"
+            "<b>Privacy</b>\n"
+            "Only your chat’s filter/language prefs are stored; no personal data."
+        )
+
 
 # --------------------------- core actions ---------------------------
 
@@ -238,6 +320,20 @@ async def cb_tutorial(c: CallbackQuery):
         disable_web_page_preview=True
     )
     await c.answer()
+
+@router.message(Command("about"))
+async def cmd_about(m: Message):
+    subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    lang = subs.get("lang_mode", "en")
+    text = _about_text(lang)
+    # back кнопка до головного меню
+    await m.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb() if lang != "ua" else back_kb())
+
+@router.message(Command("faq"))
+async def cmd_faq(m: Message):
+    subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    lang = subs.get("lang_mode", "en")
+    await m.answer(_faq_text(lang), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb(lang))
 
 # --------------------------- inline: main menu ---------------------------
 
@@ -516,4 +612,23 @@ async def show_topic(c: CallbackQuery):
         reply_markup=back_to_topics_kb(lang=lang),
         disable_web_page_preview=True
     )
+    await c.answer()
+
+
+@router.callback_query(F.data == "menu:about")
+async def cb_about(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = subs.get("lang_mode", "en")
+    text = _about_text(lang)
+    try:
+        await c.message.edit_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb() if lang != "ua" else back_kb())
+    except Exception:
+        await c.message.answer(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb() if lang != "ua" else back_kb())
+    await c.answer()
+
+@router.callback_query(F.data == "menu:faq")
+async def menu_faq(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = subs.get("lang_mode", "en")
+    await c.message.edit_text(_faq_text(lang), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb(lang))
     await c.answer()
