@@ -27,6 +27,36 @@ class MMEvent:
 
 # ===== Утиліти часу =====
 _TIME_RE = re.compile(r"(\d{1,2}):(\d{2})\s*([ap]m)?", re.I)
+_TIME_HHMM = re.compile(r"^\d{2}:\d{2}$")
+
+def _extract_hhmm_from_time_cell(time_cell) -> str:
+    """
+    Повертає 'HH:MM' або '' якщо часу немає/невизначений (Tentative, All Day, TBA…).
+    Беремо саме ОСТАННІЙ <span> з текстом у комірці .calendar__time.
+    """
+    if not time_cell:
+        return ""
+    spans = [s.get_text(strip=True) for s in time_cell.select("span")]
+    for txt in reversed(spans):
+        if not txt:
+            continue
+        low = txt.lower()
+        # явні "не-часи"
+        if any(k in low for k in ("tentative", "all day", "tba", "tbd", "—", "-")):
+            return ""
+        # 12h → 24h
+        m = re.match(r"^\s*(\d{1,2}):(\d{2})\s*([ap]m)\s*$", txt, re.I)
+        if m:
+            h, mm, ap = int(m.group(1)), m.group(2), m.group(3).lower()
+            if ap == "am":
+                if h == 12: h = 0
+            else:
+                if h != 12: h += 12
+            return f"{h:02d}:{mm}"
+        # вже у 24h?
+        if _TIME_HHMM.fullmatch(txt):
+            return txt
+    return ""
 
 def _to_24h(txt: str) -> str:
     """ '8:00am' -> '08:00'; бере ОСТАННІЙ <span> у комірці часу. """
@@ -176,7 +206,7 @@ def parse_metals_today_html(page_html: str) -> List[MMEvent]:
 
         # ---- TIME ---- (останній span із текстом)
         time_cell = tr.select_one(".calendar__cell.calendar__time")
-        cur_time_24 = ""
+        cur_time_24 = _extract_hhmm_from_time_cell(time_cell)
         if time_cell:
             spans = [s.get_text(strip=True) for s in time_cell.select("span")]
             for txt in reversed(spans):
@@ -197,10 +227,13 @@ def parse_metals_today_html(page_html: str) -> List[MMEvent]:
                         break
 
         is_no_grid = "calendar__row--no-grid" in classes
-        if not cur_time_24 and is_no_grid and last_time_24:
+        if not cur_time_24 and is_no_grid and _TIME_HHMM.fullmatch(last_time_24 or ""):
             cur_time_24 = last_time_24
+        if _TIME_HHMM.fullmatch(cur_time_24 or ""):
+            last_time_24 = cur_time_24
         if cur_time_24:
             last_time_24 = cur_time_24
+        
 
         # ---- IMPACT ---- (mm-impact-*)
         impact = None
@@ -231,8 +264,11 @@ def parse_metals_today_html(page_html: str) -> List[MMEvent]:
 
         # ---- datetime для сьогоднішньої дати у LOCAL_TZ → UTC
         today_local = datetime.now(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
-        hhmm = cur_time_24 or "00:00"
-        h, m = map(int, hhmm.split(":"))
+        hhmm = cur_time_24 if _TIME_HHMM.fullmatch(cur_time_24 or "") else "00:00"
+        try:
+            h, m = map(int, hhmm.split(":"))
+        except Exception:
+            h, m = 0, 0
         dt_local = today_local.replace(hour=h, minute=m)
         dt_utc = dt_local.astimezone(UTC)
 

@@ -105,7 +105,7 @@ def _fmt_minutes(lang: str, m: int) -> str:
     return f"{m}m" if lang != "ua" else f"{m}хв"
 
 # ---------- MAIN MENU ----------
-def main_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
+def main_menu_kb(lang: str = "en", back_to_root: bool = False) -> InlineKeyboardMarkup:
 
     t_settings   = "⚙️ Settings" if lang != "ua" else "⚙️ Налаштування"
     t_digest     = "⏱ Daily Digest" if lang != "ua" else "⏱ Щоденний дайджест"
@@ -118,6 +118,8 @@ def main_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
     t_topics     = "📚 Topics" if lang != "ua" else "📚 Теми"
     t_about      = "ℹ️ About" if lang != "ua" else "ℹ️ Про бота"
     t_faq        = "❓ FAQ" if lang != "ua" else "❓ FAQ"
+
+    back_cb = "root:home" if back_to_root else "menu:home"
 
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -140,8 +142,36 @@ def main_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text=t_tutorial, callback_data="menu:tutorial"),
                 InlineKeyboardButton(text=t_about, callback_data="menu:about")
             ],
+             [InlineKeyboardButton(text="⬅️ Back",  callback_data=back_cb)]
         ]
     )
+
+def root_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
+    t_forex  = "💱 Forex" if lang != "ua" else "💱 Форекс"
+    t_metals = "🪙 Metals" if lang != "ua" else "🪙 Метали"
+    
+    kb = [
+        [InlineKeyboardButton(text=t_forex, callback_data="root:forex")],
+        [InlineKeyboardButton(text=t_metals, callback_data="root:metals")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def metals_main_menu_kb(lang: str = "en", back_to_root: bool = True) -> InlineKeyboardMarkup:
+    t_settings = "⚙️ Settings" if lang != "ua" else "⚙️ Налаштування"
+    t_daily    = "🕰 Daily Digest" if lang != "ua" else "🕰 Щоденний дайджест"
+    t_today    = "🗓 Today" if lang != "ua" else "🗓 Сьогодні"
+    t_week     = "📅 This week" if lang != "ua" else "📅 Цього тижня"
+    
+    back_cb = "root:home" if back_to_root else "menu:home"
+
+    kb = [
+        [InlineKeyboardButton(text=t_settings, callback_data="metals:settings"),
+         InlineKeyboardButton(text=t_daily,    callback_data="metals:daily")],
+        [InlineKeyboardButton(text=t_today,    callback_data="metals:today"),
+         InlineKeyboardButton(text=t_week,     callback_data="metals:week")],
+         [InlineKeyboardButton(text="⬅️ Back",  callback_data=back_cb)]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def back_kb(lang: str = "en") -> InlineKeyboardMarkup:
     t_back = "◀️ Back" if lang != "ua" else "◀️ Назад"

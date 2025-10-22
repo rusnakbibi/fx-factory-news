@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
@@ -23,6 +24,8 @@ from .keyboards import (
     alerts_presets_kb,
     topics_kb,
     back_to_topics_kb,
+    root_menu_kb, 
+    metals_main_menu_kb
 )
 from .db import ensure_sub, get_sub, unsubscribe, set_sub
 
@@ -402,33 +405,23 @@ async def _send_week(m: Message, subs: dict):
         await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
         header = ""
 
-async def _send_metals_today_offline(m: Message, html_path: str):
+async def _send_metals_today_offline(m: Message, lang: str):
     try:
-        events = load_today_from_file(html_path)
+        events = load_today_from_file(METALS_TODAY_HTML)
     except Exception as e:
-        await m.answer(f"Metals (offline) parse error: {e}")
+        await m.answer(_t_en_ua(lang, f"Metals (offline) parse error: {e}", f"Метали (офлайн) помилка парсингу: {e}"))
         return
 
     if not events:
-        await m.answer("Metals (offline): no events for today in the file.")
+        await m.answer(_t_en_ua(lang, "No metals events for today.", "Подій по металах на сьогодні немає."))
         return
 
-    # Формуємо повідомлення «картками», по кілька в одному меседжі
-    header = "🧲 <b>Metals — Today</b>\n"
-    chunk, buf = [], []
-    for ev in events:
-        buf.append(mm_event_to_card_text(ev))
-        if len(buf) >= 6:  # щоб не роздувати одне повідомлення
-            chunk.append("\n\n".join(buf))
-            buf = []
-    if buf:
-        chunk.append("\n\n".join(buf))
-
-    first = True
-    for part in chunk:
-        text = (header if first else "") + part
-        await m.answer(text, parse_mode="HTML", disable_web_page_preview=True)
-        first = False
+    header = _t_en_ua(lang, "🪙 <b>Metals — Today</b>\n", "🪙 <b>Метали — Сьогодні</b>\n")
+    # пакуємо по 8 подій, як у Forex today
+    for pack in chunk(events, 8):
+        body = "\n\n".join(mm_event_to_card_text(ev, lang=lang) for ev in pack)
+        await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
+        header = ""
 
 # --------------------------- text commands ---------------------------
 
@@ -438,15 +431,18 @@ async def cmd_start(m: Message):
     subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
     lang = _lang(subs)
     await m.answer(
-        _t_en_ua(lang, "Main menu:", "Головне меню:"),
-        reply_markup=main_menu_kb(lang=lang),
+        _t_en_ua(lang, "Choose a section:", "Оберіть розділ:"),
+        reply_markup=root_menu_kb(lang=lang),
     )
 
 @router.message(Command("menu"))
 async def cmd_menu(m: Message):
     subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
     lang = _lang(subs)
-    await m.answer(_t_en_ua(lang, "Main menu:", "Головне меню:"), reply_markup=main_menu_kb(lang=lang))
+    await m.answer(
+        _t_en_ua(lang, "Choose a section:", "Оберіть розділ:"),
+        reply_markup=root_menu_kb(lang=lang),
+    )
 
 @router.message(Command("today"))
 async def cmd_today(m: Message):
@@ -522,6 +518,39 @@ async def cmd_faq(m: Message):
 async def cmd_metals_today(m: Message):
     await _send_metals_today_offline(m, METALS_TODAY_HTML)
 
+# --------------------------- inline:  ---------------------------
+
+@router.callback_query(F.data == "root:home")
+async def cb_root_home(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(
+        _t_en_ua(lang, "Choose a section:", "Оберіть розділ:"),
+        reply_markup=root_menu_kb(lang=lang),
+    )
+    await c.answer()
+
+# увійти в підменю Forex (Back з нього -> root)
+@router.callback_query(F.data == "root:forex")
+async def cb_root_forex(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(
+        _t_en_ua(lang, "Main menu:", "Головне меню:"),
+        reply_markup=main_menu_kb(lang=lang, back_to_root=True),
+    )
+    await c.answer()
+
+# увійти в підменю Metals (Back з нього -> root)
+@router.callback_query(F.data == "root:metals")
+async def cb_root_metals(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(
+        _t_en_ua(lang, "Metals menu:", "Меню металів:"),
+        reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True),
+    )
+    await c.answer()
 
 # --------------------------- inline: main menu ---------------------------
 
@@ -529,7 +558,15 @@ async def cmd_metals_today(m: Message):
 async def cb_home(c: CallbackQuery):
     subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
     lang = _lang(subs)
-    await c.message.edit_text(_t_en_ua(lang, "Main menu:", "Головне меню:"), reply_markup=main_menu_kb(lang=lang))
+    text = _t_en_ua(lang, "Main menu:", "Головне меню:")
+    try:
+        await c.message.edit_text(text, reply_markup=main_menu_kb(lang=lang, back_to_root=True))
+    except TelegramBadRequest as e:
+        if "message is not modified" in str(e):
+            # якщо Telegram не дозволяє редагувати — надсилаємо нове
+            await c.message.answer(text, reply_markup=main_menu_kb(lang=lang, back_to_root=True))
+        else:
+            raise
     await c.answer()
 
 @router.callback_query(F.data == "menu:today")
@@ -545,7 +582,7 @@ async def cb_today(c: CallbackQuery):
     except Exception:
         pass
     await _send_today(c.message, subs)
-    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=main_menu_kb(lang=lang))
+    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=main_menu_kb(lang=lang, back_to_root=True))
 
 @router.callback_query(F.data == "menu:week")
 async def cb_week(c: CallbackQuery):
@@ -560,7 +597,7 @@ async def cb_week(c: CallbackQuery):
     except Exception:
         pass
     await _send_week(c.message, _rowdict(subs))
-    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=main_menu_kb(lang=lang))
+    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=main_menu_kb(lang=lang, back_to_root=True))
 
 # --------------------------- inline: Settings ---------------------------
 
@@ -720,7 +757,7 @@ async def cb_sub_set(c: CallbackQuery):
     if not re.fullmatch(r"\d{2}:\d{2}", t):
         return await c.answer(_t_en_ua(lang, "Invalid time", "Некоректний час"))
     set_sub(c.from_user.id, c.message.chat.id, daily_time=t)
-    await c.message.edit_text(_t_en_ua(lang, f"✅ Daily digest at {t}.", f"✅ Дайджест о {t}."), reply_markup=main_menu_kb(lang=lang))
+    await c.message.edit_text(_t_en_ua(lang, f"✅ Daily digest at {t}.", f"✅ Дайджест о {t}."), reply_markup=main_menu_kb(lang=lang, back_to_root=True))
     await c.answer()
 
 # --------------------------- inline: Alerts ---------------------------
@@ -745,7 +782,7 @@ async def menu_stop(c: CallbackQuery):
     lang = _lang(subs)
     unsubscribe(c.from_user.id, c.message.chat.id)
     await c.message.edit_text(_t_en_ua(lang, "Notifications disabled for this chat.", "Сповіщення для цього чату вимкнено."),
-                              reply_markup=main_menu_kb(lang=lang))
+                              reply_markup=main_menu_kb(lang=lang, back_to_root=True))
     await c.answer()
 
 # --------------------------- Topics ---------------------------
@@ -829,3 +866,44 @@ async def cb_weekly(c: CallbackQuery):
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
     await c.answer(_t_en_ua(_lang(subs), "Building summary…", "Формую підсумок…"), show_alert=False)
     await _send_weekly_summary(c.message, subs)
+
+
+@router.callback_query(F.data == "metals:today")
+async def cb_metals_today(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.answer(_t_en_ua(lang, "Fetching metals (offline)…", "Завантажую метали (офлайн)…"), show_alert=False)
+    try:
+        await c.message.edit_text(_t_en_ua(lang, "🪙 Metals — Today:", "🪙 Метали — Сьогодні:"), reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True))
+    except Exception:
+        pass
+    await _send_metals_today_offline(c.message, lang)
+    await c.message.answer(_t_en_ua(lang, "Back to menu:", "Назад до меню:"), reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True))
+
+@router.callback_query(F.data == "metals:settings")
+async def cb_metals_settings(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    text = _t_en_ua(
+        lang,
+        "⚙️ Metals Settings (coming soon):\n• Impact filter\n• Countries filter\n• Language (EN/UA)\n• Alert lead time",
+        "⚙️ Налаштування Металів (скоро):\n• Фільтр за впливом\n• Фільтр за країнами\n• Мова (EN/UA)\n• Час попередження",
+    )
+    await c.message.edit_text(text, reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True))
+    await c.answer()
+
+@router.callback_query(F.data == "metals:daily")
+async def cb_metals_daily(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(_t_en_ua(lang, "Daily digest for Metals — coming soon.", "Щоденний дайджест для Металів — скоро."),
+                              reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True))
+    await c.answer()
+
+@router.callback_query(F.data == "metals:week")
+async def cb_metals_week(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(_t_en_ua(lang, "This week for Metals — coming soon.", "Цього тижня для Металів — скоро."),
+                              reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True))
+    await c.answer()
