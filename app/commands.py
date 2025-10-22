@@ -11,7 +11,7 @@ from aiogram.types import Message, CallbackQuery
 
 from .config import LOCAL_TZ, UTC, TOPIC_DEFS, TOPIC_EXPLAINERS
 from .translator import UA_DICT
-from .ff_client import get_events_thisweek_cached as fetch_calendar, get_cache_meta
+from .ff_client import get_events_thisweek_cached as fetch_calendar
 from .filters import filter_events, normalize_impact
 from .formatting import event_to_text
 from .utils import csv_to_list, chunk
@@ -26,8 +26,23 @@ from .keyboards import (
 )
 from .db import ensure_sub, get_sub, unsubscribe, set_sub
 
+from .metals_offline import (
+    load_today_from_file,
+    mm_event_to_card_text,
+)
+import os
+
 router = Router()
 log = logging.getLogger(__name__)
+
+IMPACT_EMOJI = {
+    "High": "🔴",
+    "Medium": "🟠",
+    "Low": "🟡",
+    "Non-economic": "⚪️",
+}
+
+METALS_TODAY_HTML = os.getenv("METALS_TODAY_HTML", "./metals_today.html")
 
 # --------------------------- helpers ---------------------------
 
@@ -42,13 +57,37 @@ def _lang(subs: dict) -> str:
 def _t_en_ua(lang: str, en: str, ua: str) -> str:
     return en if lang != "ua" else ua
 
-def _fmt_ttl(seconds: int) -> str:
-    m, s = divmod(max(0, seconds), 60)
-    if m and s:
-        return f"≈ {m} хв {s} с"
-    if m:
-        return f"≈ {m} хв"
-    return f"≈ {s} с"
+def _t_en_ua(lang: str, en: str, ua: str) -> str:
+    return ua if lang == "ua" else en
+
+def _week_bounds_local(now_local: datetime) -> tuple[datetime, datetime]:
+    """
+    Межі тижня в локальній TZ: неділя 00:00 → наступна неділя 00:00.
+    """
+    delta_days = (now_local.weekday() + 1) % 7  # Sun=0
+    sunday_local = (now_local - timedelta(days=delta_days)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    next_sunday_local = sunday_local + timedelta(days=7)
+    return sunday_local, next_sunday_local
+
+def _fmt_local_time(dt_utc: datetime) -> str:
+    """
+    Короткий час події в локалі (наприклад 'Tue 09:30').
+    """
+    local = dt_utc.astimezone(LOCAL_TZ)
+    return local.strftime("%a %H:%M")
+
+def _compact_event_line(ev, lang: str) -> str:
+    """
+    Стисла стрічка для хайлайтів: emoji time CUR title (без зайвих тегів).
+    """
+    imp = (ev.impact or "").title()
+    imp_emoji = IMPACT_EMOJI.get(imp, "•")
+    t = _fmt_local_time(ev.date)
+    cur = (ev.currency or "").upper()
+    title = ev.title or ""
+    return f"{imp_emoji} {t} {cur} — {title}"
 
 def _tutorial_text(lang: str = "en") -> str:
     if lang == "ua":
@@ -161,6 +200,113 @@ def _faq_text(lang: str = "en") -> str:
             "Only your chat’s filter/language prefs are stored; no personal data."
         )
 
+def _weekly_summary_text(events, lang: str) -> list[str]:
+    """
+    Приймає ВЖЕ відфільтровані події за тиждень (за impact/currencies) і
+    повертає список повідомлень (чантів) для Telegram.
+    """
+    if not events:
+        return [_t_en_ua(lang,
+            "📈 <b>Weekly summary</b>\nNo events match your filters for this week.",
+            "📈 <b>Підсумок тижня</b>\nЗа вашим фільтром цього тижня подій немає."
+        )]
+
+    # Заголовок із датами тижня
+    start_local, end_local = _week_bounds_local(datetime.now(LOCAL_TZ))
+    hdr = _t_en_ua(
+        lang,
+        f"📈 <b>Weekly summary</b>\nWeek: <i>{start_local:%a %b %d}</i> → <i>{(end_local - timedelta(seconds=1)):%a %b %d}</i>\n",
+        f"📈 <b>Підсумок тижня</b>\nТиждень: <i>{start_local:%a %b %d}</i> → <i>{(end_local - timedelta(seconds=1)):%a %b %d}</i>\n",
+    )
+
+    # Підрахунки
+    total = len(events)
+    by_impact = {"High": 0, "Medium": 0, "Low": 0, "Non-economic": 0}
+    by_currency: dict[str, int] = {}
+
+    for ev in events:
+        imp = (ev.impact or "").title()
+        if imp in by_impact:
+            by_impact[imp] += 1
+        cur = (ev.currency or "").upper()
+        if cur:
+            by_currency[cur] = by_currency.get(cur, 0) + 1
+
+    # Топ валют (до 6)
+    top_curs = sorted(by_currency.items(), key=lambda x: (-x[1], x[0]))[:6]
+    top_curs_txt = ", ".join(f"{c}×{n}" for c, n in top_curs) if top_curs else _t_en_ua(lang, "n/a", "н/д")
+
+    # Summary-блок
+    summary_lines = [
+        hdr,
+        _t_en_ua(lang, "<b>Totals</b>:", "<b>Підсумки</b>:"),
+        _t_en_ua(lang,
+                 f"• Events: <b>{total}</b>",
+                 f"• Подій: <b>{total}</b>"),
+        f"• {IMPACT_EMOJI['High']} {_t_en_ua(lang,'High','Високий')}: <b>{by_impact['High']}</b>",
+        f"• {IMPACT_EMOJI['Medium']} {_t_en_ua(lang,'Medium','Середній')}: <b>{by_impact['Medium']}</b>",
+        f"• {IMPACT_EMOJI['Low']} {_t_en_ua(lang,'Low','Низький')}: <b>{by_impact['Low']}</b>",
+        f"• {IMPACT_EMOJI['Non-economic']} {_t_en_ua(lang,'Non-eco','Нейтр.')}: <b>{by_impact['Non-economic']}</b>",
+        _t_en_ua(lang, f"• Top currencies: {top_curs_txt}", f"• Топ валюти: {top_curs_txt}"),
+        ""
+    ]
+
+    # Хайлайти (найважливіші майбутні/решта тижня події: High → потім Medium), до 10 рядків
+    now_utc = datetime.now(UTC)
+    upcoming = [e for e in events if e.date >= now_utc]
+    upcoming.sort(key=lambda e: (e.impact != "High", e.date))  # High спершу, потім за часом
+    highlights = upcoming[:10] if upcoming else events[:10]
+
+    if highlights:
+        summary_lines.append(_t_en_ua(lang, "<b>Highlights ahead</b>:", "<b>Головні попереду</b>:"))
+        for ev in highlights:
+            summary_lines.append(_compact_event_line(ev, lang))
+
+    # Розбиваємо на чати по довжині ~3500 символів (з запасом до 4096)
+    text = "\n".join(summary_lines)
+    chunks: list[str] = []
+    while len(text) > 3500:
+        cut = text.rfind("\n", 0, 3500)
+        if cut == -1:
+            cut = 3500
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip()
+    chunks.append(text)
+    return chunks
+
+async def _send_weekly_summary(m: Message, subs: dict):
+    """
+    Збір weekly summary за поточний тиждень у локальній TZ з
+    урахуванням фільтрів impact/currency.
+    """
+    subs = _rowdict(subs)
+    lang = _lang(subs)
+
+    impacts_raw = csv_to_list(subs.get("impact_filter", ""))
+    impacts = [normalize_impact(x) for x in impacts_raw if normalize_impact(x)]
+    countries = csv_to_list(subs.get("countries_filter", ""))
+
+    try:
+        events = await fetch_calendar(lang=lang)
+    except Exception as e:
+        log.exception("[weekly] load events failed: %s", e)
+        await m.answer(_t_en_ua(lang, "Internal fetch error. See logs.", "Внутрішня помилка завантаження. Див. логи."))
+        return
+
+    # межі тижня
+    now_local = datetime.now(LOCAL_TZ)
+    sunday_local, next_sunday_local = _week_bounds_local(now_local)
+    start_utc = sunday_local.astimezone(UTC)
+    end_utc = next_sunday_local.astimezone(UTC)
+
+    # вікно тижня, фільтри
+    in_window = [e for e in events if start_utc <= e.date < end_utc]
+    filtered = filter_events(in_window, impacts, countries)
+    filtered.sort(key=lambda e: e.date)
+
+    # віддати кілька повідомлень, якщо текст довгий
+    for chunk_txt in _weekly_summary_text(filtered, lang):
+        await m.answer(chunk_txt, parse_mode="HTML", disable_web_page_preview=True)
 
 # --------------------------- core actions ---------------------------
 
@@ -256,6 +402,34 @@ async def _send_week(m: Message, subs: dict):
         await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
         header = ""
 
+async def _send_metals_today_offline(m: Message, html_path: str):
+    try:
+        events = load_today_from_file(html_path)
+    except Exception as e:
+        await m.answer(f"Metals (offline) parse error: {e}")
+        return
+
+    if not events:
+        await m.answer("Metals (offline): no events for today in the file.")
+        return
+
+    # Формуємо повідомлення «картками», по кілька в одному меседжі
+    header = "🧲 <b>Metals — Today</b>\n"
+    chunk, buf = [], []
+    for ev in events:
+        buf.append(mm_event_to_card_text(ev))
+        if len(buf) >= 6:  # щоб не роздувати одне повідомлення
+            chunk.append("\n\n".join(buf))
+            buf = []
+    if buf:
+        chunk.append("\n\n".join(buf))
+
+    first = True
+    for part in chunk:
+        text = (header if first else "") + part
+        await m.answer(text, parse_mode="HTML", disable_web_page_preview=True)
+        first = False
+
 # --------------------------- text commands ---------------------------
 
 @router.message(Command("start"))
@@ -264,7 +438,7 @@ async def cmd_start(m: Message):
     subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
     lang = _lang(subs)
     await m.answer(
-        _t_en_ua(lang, "Back to menu:", "Назад до меню:"),
+        _t_en_ua(lang, "Main menu:", "Головне меню:"),
         reply_markup=main_menu_kb(lang=lang),
     )
 
@@ -308,6 +482,15 @@ async def cmd_tutorial(m: Message):
     lang = subs.get("lang_mode", "en")
     await m.answer(_tutorial_text(lang), parse_mode="HTML", reply_markup=back_kb(lang))
 
+@router.message(Command("weekly_summary"))
+async def cmd_weekly_summary(m: Message):
+    subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    if not subs:
+        ensure_sub(m.from_user.id, m.chat.id)
+        subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
+    await _send_weekly_summary(m, subs)
+
+
 # ---- з меню
 @router.callback_query(F.data == "menu:tutorial")
 async def cb_tutorial(c: CallbackQuery):
@@ -334,6 +517,11 @@ async def cmd_faq(m: Message):
     subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
     lang = subs.get("lang_mode", "en")
     await m.answer(_faq_text(lang), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb(lang))
+
+@router.message(Command("metals_today"))
+async def cmd_metals_today(m: Message):
+    await _send_metals_today_offline(m, METALS_TODAY_HTML)
+
 
 # --------------------------- inline: main menu ---------------------------
 
@@ -632,3 +820,12 @@ async def menu_faq(c: CallbackQuery):
     lang = subs.get("lang_mode", "en")
     await c.message.edit_text(_faq_text(lang), parse_mode="HTML", disable_web_page_preview=True, reply_markup=back_kb(lang))
     await c.answer()
+
+@router.callback_query(F.data == "menu:weekly")
+async def cb_weekly(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    await c.answer(_t_en_ua(_lang(subs), "Building summary…", "Формую підсумок…"), show_alert=False)
+    await _send_weekly_summary(c.message, subs)

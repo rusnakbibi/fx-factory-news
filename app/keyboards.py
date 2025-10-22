@@ -113,6 +113,7 @@ def main_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
     t_stop       = "🔕 Stop" if lang != "ua" else "🔕 Вимкнути"
     t_today      = "📅 Today" if lang != "ua" else "📅 Сьогодні"
     t_week       = "🗓 This week" if lang != "ua" else "🗓 Цього тижня"
+    t_weekly_summary  = "📈 Weekly summary" if lang != "ua" else "📈 Підсумок тижня"
     t_tutorial   = "❓ Tutorial" if lang != "ua" else "❓ Довідка"
     t_topics     = "📚 Topics" if lang != "ua" else "📚 Теми"
     t_about      = "ℹ️ About" if lang != "ua" else "ℹ️ Про бота"
@@ -122,12 +123,15 @@ def main_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text=t_settings, callback_data="menu:settings")],
             [InlineKeyboardButton(text=t_digest,   callback_data="menu:subscribe")],
-            [InlineKeyboardButton(text=t_alerts,   callback_data="menu:alerts")],
-            [InlineKeyboardButton(text=t_stop,     callback_data="menu:stop")],
+            [
+                InlineKeyboardButton(text=t_alerts,   callback_data="menu:alerts"),
+                InlineKeyboardButton(text=t_stop,     callback_data="menu:stop")
+            ],
             [
                 InlineKeyboardButton(text=t_today,    callback_data="menu:today"),
                 InlineKeyboardButton(text=t_week,     callback_data="menu:week")
             ],
+            [InlineKeyboardButton(text=t_weekly_summary, callback_data="menu:weekly")],
             [
                 InlineKeyboardButton(text=t_topics,   callback_data="menu:topics"),
                 InlineKeyboardButton(text=t_faq,      callback_data="menu:faq")

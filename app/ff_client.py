@@ -29,7 +29,7 @@ async def _client() -> httpx.AsyncClient:
             _CLIENT = httpx.AsyncClient(
                 timeout=20,
                 limits=httpx.Limits(max_connections=5, max_keepalive_connections=2),
-                # http2=True,  # за бажанням
+                # http2=True,
             )
         return _CLIENT
 
@@ -39,14 +39,29 @@ _NEXT_ALLOWED_FETCH: datetime = datetime.min.replace(tzinfo=UTC)
 def _now_utc() -> datetime:
     return datetime.now(UTC)
 
-# -------------------- simple in-process cache --------------------
-# Кешуємо готові FFEvent на TTL окремо по мові (lang)
-_CACHE_TTL_SECONDS = int(os.getenv("FF_FX_TTL", "120"))  # дефолт 120 с (2 хв)
+# -------------------- simple in-process caches --------------------
+# A) Пер-lang кеш готових FFEvent (короткий TTL, щоб не дерти мережу зайвий раз)
+_CACHE_TTL_SECONDS = int(os.getenv("FF_FX_TTL", "120"))  # 2 хв за дефолтом
 _TW_CACHE: Dict[Tuple[str], Tuple[float, List[FFEvent]]] = {}  # key=(lang,) -> (expires_epoch, events)
 _CACHE_LOCK = asyncio.Lock()
-_CACHE_EVENTS: List[FFEvent] = []
-_CACHE_EXPIRES: datetime = datetime.min.replace(tzinfo=UTC)
-_CACHE_TTL = timedelta(minutes=10)
+
+# B) “Сирий” кеш thisweek.json (спільний для всіх мов)
+_RAW_TTL_SECONDS = int(os.getenv("FF_RAW_TTL", "600"))  # 10 хв за дефолтом
+_RAW_JSON: Optional[List[Dict[str, Any]]] = None
+_RAW_EXPIRES_AT: float = 0.0  # epoch seconds
+
+def _raw_cache_set(data: List[Dict[str, Any]] | None) -> None:
+    global _RAW_JSON, _RAW_EXPIRES_AT
+    _RAW_JSON = data or []
+    _RAW_EXPIRES_AT = time.time() + _RAW_TTL_SECONDS
+
+def _raw_cache_get() -> Tuple[Optional[List[Dict[str, Any]]], float]:
+    """Повертає (raw, ttl_left_seconds). ttl_left_seconds < 0 означає, що прострочено/немає."""
+    now = time.time()
+    ttl_left = _RAW_EXPIRES_AT - now
+    if _RAW_JSON is None:
+        return None, -1.0
+    return _RAW_JSON, ttl_left
 
 # -------------------- low-level fetch: thisweek.json --------------------
 async def _fetch_thisweek_json() -> List[Dict[str, Any]]:
@@ -61,7 +76,6 @@ async def _fetch_thisweek_json() -> List[Dict[str, Any]]:
     if now < _NEXT_ALLOWED_FETCH:
         wait = (_NEXT_ALLOWED_FETCH - now).total_seconds()
         log.info("[ff_client] backoff until %s (sleep %.1fs)", _NEXT_ALLOWED_FETCH.isoformat(), wait)
-        # не блокуємо надто довго одним сном
         await asyncio.sleep(min(wait, 30))
 
     cli = await _client()
@@ -84,7 +98,7 @@ async def _fetch_thisweek_json() -> List[Dict[str, Any]]:
                 delay = float(ra)
             else:
                 delay = backoff
-            delay += random.uniform(0.2, 0.8)  # джитер
+            delay += random.uniform(0.2, 0.8)  # jitter
             _NEXT_ALLOWED_FETCH = _now_utc() + timedelta(seconds=delay)
             log.info("[ff_client] 429; next allowed at %s (try %d/%d)", _NEXT_ALLOWED_FETCH.isoformat(), i + 1, tries)
             await asyncio.sleep(delay)
@@ -95,43 +109,24 @@ async def _fetch_thisweek_json() -> List[Dict[str, Any]]:
             log.info("[ff_client] 404 at %s", FF_THISWEEK)
             return []
 
-        # інші статуси — коротка пауза і повтор
         log.info("[ff_client] HTTP %s at %s", r.status_code, FF_THISWEEK)
         await asyncio.sleep(0.5 + random.uniform(0, 0.5))
 
     log.info("[ff_client] giving up after retries for %s", FF_THISWEEK)
     return []
 
-# -------------------- public: cached this-week events --------------------
-async def get_events_thisweek_cached(lang: str = "en") -> List[FFEvent]:
+# -------------------- builder from RAW --------------------
+def _build_events_from_raw(raw: List[Dict[str, Any]] | None, lang: str) -> List[FFEvent]:
     """
-    Тягне thisweek.json, будує FFEvent і кешує результат на _CACHE_TTL_SECONDS.
-    Якщо кеш свіжий — повертає його без мережевого запиту.
+    Будує список FFEvent із «сирих» словників thisweek.json (без мережі).
+    Всі дати нормалізуються до UTC (aware).
     """
-    key = (lang,)
-    now_epoch = time.time()
-
-    async with _CACHE_LOCK:
-        cached = _TW_CACHE.get(key)
-        if cached:
-            expires_at, events = cached
-            if now_epoch < expires_at:
-                log.debug("[ff_client] cache HIT (lang=%s, ttl_left=%.0fs, count=%d)",
-                          lang, expires_at - now_epoch, len(events))
-                return events
-            # прострочено — видалимо
-            _TW_CACHE.pop(key, None)
-
-    # MISS: тягнемо сирі дані
-    raw = await _fetch_thisweek_json()
-
     events: List[FFEvent] = []
     for e in raw or []:
         date_raw = e.get("date")
         if not date_raw:
             continue
 
-        # Нормалізуємо дату в UTC (aware)
         try:
             try:
                 dt_utc = datetime.fromisoformat(str(date_raw).replace("Z", "+00:00")).astimezone(UTC)
@@ -163,14 +158,66 @@ async def get_events_thisweek_cached(lang: str = "en") -> List[FFEvent]:
     uniq: Dict[tuple, FFEvent] = {}
     for ev in events:
         uniq[(ev.date, ev.title, ev.country, ev.currency, ev.impact)] = ev
-    result = sorted(uniq.values(), key=lambda x: x.date)
+    return sorted(uniq.values(), key=lambda x: x.date)
 
-    # покладемо в кеш
+# -------------------- public: cached this-week events --------------------
+async def get_events_thisweek_cached(lang: str = "en") -> List[FFEvent]:
+    """
+    Повертає події цього тижня з кешу. Порядок:
+      1) Перевіряємо per-lang кеш FFEvent.
+      2) Якщо MISS — пробуємо побудувати з «сирого» кешу (спільного для всіх мов).
+      3) Якщо й сирого нема/протух — тягнемо мережу; на успіх — оновлюємо raw + per-lang кеші.
+      4) Якщо мережа впала/429, але є хоч якісь старі сирі дані — повертаємо STALE з них.
+    """
+    key = (lang,)
+    now_epoch = time.time()
+
+    # 1) Пер-lang кеш подій
     async with _CACHE_LOCK:
-        _TW_CACHE[key] = (time.time() + _CACHE_TTL_SECONDS, result)
-    log.info("[ff_client] thisweek fetched & cached (lang=%s, ttl=%ss, count=%d)",
-             lang, _CACHE_TTL_SECONDS, len(result))
-    return result
+        cached = _TW_CACHE.get(key)
+        if cached:
+            expires_at, events = cached
+            if now_epoch < expires_at:
+                log.debug("[ff_client] cache HIT (lang=%s, ttl_left=%.0fs, count=%d)",
+                          lang, expires_at - now_epoch, len(events))
+                return events
+            # прострочено — приберемо
+            _TW_CACHE.pop(key, None)
+
+    # 2) Спробуємо з «сирого» кешу (якщо ще валідний)
+    raw, ttl_left = _raw_cache_get()
+    if raw is not None and ttl_left >= 0:
+        events = _build_events_from_raw(raw, lang)
+        async with _CACHE_LOCK:
+            _TW_CACHE[key] = (time.time() + _CACHE_TTL_SECONDS, events)
+        log.debug("[ff_client] served from RAW cache (lang=%s, raw_ttl_left=%.0fs, count=%d)",
+                  lang, ttl_left, len(events))
+        return events
+
+    # 3) Мережа: оновлюємо сирі дані й збираємо події
+    try:
+        raw = await _fetch_thisweek_json()
+        _raw_cache_set(raw or [])
+        events = _build_events_from_raw(raw or [], lang)
+        async with _CACHE_LOCK:
+            _TW_CACHE[key] = (time.time() + _CACHE_TTL_SECONDS, events)
+        log.info("[ff_client] fetched & cached (lang=%s, events=%d)", lang, len(events))
+        return events
+    except Exception as e:
+        log.warning("[ff_client] fetch failed: %s", e)
+
+    # 4) Fallback: якщо мережа не дала, але є хоч якісь старі сирі дані — віддамо STALE
+    if _RAW_JSON:
+        events = _build_events_from_raw(_RAW_JSON, lang)
+        async with _CACHE_LOCK:
+            # короткий м'який TTL, щоб одразу не молотити мережу повторно
+            _TW_CACHE[key] = (time.time() + 120, events)  # 2 хв
+        log.info("[ff_client] served STALE from RAW after fetch error/429 (lang=%s, events=%d)",
+                 lang, len(events))
+        return events
+
+    # 5) Зовсім нічого
+    return []
 
 # Зворотно-сумісний псевдонім (якщо десь ще використовується)
 async def fetch_calendar(lang: str = "en") -> List[FFEvent]:
@@ -178,18 +225,26 @@ async def fetch_calendar(lang: str = "en") -> List[FFEvent]:
 
 def clear_ff_cache() -> int:
     """
-    Повністю очищає in-memory кеш thisweek.json.
-    НЕ чіпає логіку отримання подій; наступний виклик get_events_thisweek_cached
-    зробить мережевий запит і знову заповнить кеш.
-    Повертає кількість очищених записів.
+    Повністю очищає in-memory кеші:
+      - пер-lang кеш подій (_TW_CACHE)
+      - спільний сирий кеш (_RAW_JSON)
+    Повертає кількість очищених записів (_TW_CACHE) + 1, якщо був сирий кеш.
     """
+    cleared = 0
     try:
-        n = len(_TW_CACHE)
+        cleared += len(_TW_CACHE)
         _TW_CACHE.clear()
-        return n
     except Exception:
-        return 0
-
+        pass
+    # сирий кеш
+    global _RAW_JSON, _RAW_EXPIRES_AT, _NEXT_ALLOWED_FETCH
+    if _RAW_JSON is not None:
+        _RAW_JSON = None
+        _RAW_EXPIRES_AT = 0.0
+        cleared += 1
+    # скинемо backoff — нехай наступний виклик сам вирішить
+    _NEXT_ALLOWED_FETCH = datetime.min.replace(tzinfo=UTC)
+    return cleared
 
 # -------------------- auto-refresh loop (optional) --------------------
 _FF_REFRESH_MINUTES = int(os.getenv("FF_REFRESH_MINUTES", "60"))
@@ -201,18 +256,24 @@ async def _autorefresh_loop():
     Періодично освіжає in-memory кеш thisweek.json.
     Повага до 429 уже всередині _fetch_thisweek_json().
     """
-    interval = max(5, _FF_REFRESH_MINUTES)  # мінімум 5 хв, щоб не зловживати
+    interval = max(5, _FF_REFRESH_MINUTES)  # мінімум 5 хв
     log.info(f"[ff_client] autorefresh: started (every {interval} min)")
     try:
         while True:
             try:
-                await get_events_thisweek_cached(lang="en")
+                # оновимо сирий кеш і пер-lang (англ) «на фоні»
+                raw = await _fetch_thisweek_json()
+                if raw is not None:
+                    _raw_cache_set(raw or [])
+                # прогріємо англійську локалізацію
+                events = _build_events_from_raw(raw or _RAW_JSON or [], "en")
+                async with _CACHE_LOCK:
+                    _TW_CACHE[("en",)] = (time.time() + _CACHE_TTL_SECONDS, events)
             except Exception as e:
                 log.warning(f"[ff_client] autorefresh tick failed: {e}")
-            # спимо «м’яко», щоб можна було коректно зупинити
-            for _ in range(interval * 6):  # кроками по 10 сек
+            # спимо м’яко
+            for _ in range(interval * 6):  # крок 10 секунд
                 await asyncio.sleep(10)
-            # по таймеру піде наступна ітерація
     except asyncio.CancelledError:
         log.info("[ff_client] autorefresh: cancelled")
         raise
@@ -246,12 +307,10 @@ async def stop_autorefresh() -> None:
 
 def get_cache_meta(lang: str = "en") -> Dict[str, Any]:
     """
-    Повертає метадані поточного кешу thisweek.json:
+    Повертає метадані поточного кешу FFEvent:
       - count: кількість подій у кеші (0, якщо прострочено/порожньо)
       - valid_until: ISO-час в UTC, доки кеш чинний (або '—', якщо кешу немає)
-      - ttl_minutes: тривалість TTL у хвилинах (з _CACHE_TTL_SECONDS)
-    НЕ змінює логіку get_events_thisweek_cached.
-    Очікує структуру _TW_CACHE: {(lang,): (expires_at_epoch, [FFEvent, ...])}
+      - ttl_minutes: тривалість TTL у хвилинах (_CACHE_TTL_SECONDS)
     """
     try:
         now = time.time()
@@ -268,7 +327,6 @@ def get_cache_meta(lang: str = "en") -> Dict[str, Any]:
         expires_at, events = item
         valid_until_iso = datetime.fromtimestamp(expires_at, tz=UTC).replace(microsecond=0).isoformat()
 
-        # якщо протух — рахуємо як 0 подій, але показуємо до якого часу був чинний
         if now >= expires_at:
             return {"count": 0, "valid_until": valid_until_iso, "ttl_minutes": ttl_minutes}
 
