@@ -5,6 +5,7 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime
 
 from .config import BOT_TOKEN, LOCAL_TZ
 
@@ -15,6 +16,7 @@ async def update_metals():
     """
     Оновлення офлайн-файлу для Metals: викликає bash-скрипт.
     """
+    print(f"[update_metals] triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     proc = await asyncio.create_subprocess_exec(
         "bash", "scripts/update_metals.sh",
         stdout=asyncio.subprocess.PIPE,
@@ -44,6 +46,10 @@ async def on_startup(*_) -> None:
     setup_jobs()
     if not scheduler.running:
         scheduler.start()
+        print("[scheduler] ✅ started successfully")
+        await update_metals()
+    else:
+        print("[scheduler] ⚙️ already running")
 
 async def on_shutdown(*_) -> None:
     if scheduler.running:
