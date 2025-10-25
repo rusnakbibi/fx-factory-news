@@ -6,3 +6,4 @@ psycopg[binary]==3.2.10
 lxml
 beautifulsoup4>=4.12.2
 playwright>=1.55
+apscheduler>=3.10.4

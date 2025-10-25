@@ -72,7 +72,7 @@ async def main():
         raise RuntimeError("Set BOT_TOKEN in environment")
 
     logging.info("Creating bot and dispatcher...")
-    bot = await build_bot(BOT_TOKEN)
+    bot = build_bot()
     dp = build_dispatcher()
 
     # Діагностика бота та ключа локера
