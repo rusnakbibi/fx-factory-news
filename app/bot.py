@@ -53,7 +53,7 @@ def setup_jobs() -> None:
         update_metals,
         trigger="cron",
         hour="6-23",       # щогодини 06..23 локального часу
-        minute="*/5",        # кожні 5 хвилин
+        minute="0",        # every hour at 00 minutes
         id="metals_update_hourly",
         replace_existing=True,
         misfire_grace_time=600,
