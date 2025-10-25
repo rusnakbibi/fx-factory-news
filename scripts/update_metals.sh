@@ -34,8 +34,7 @@ curl -sS -L --compressed "${URL}" \
 BYTES=$(wc -c < "${TMP}" | tr -d ' ')
 if [[ "${BYTES}" -lt 50000 ]] || grep -qiE 'cf-mitigated|Just a moment|cloudflare|challenge' "${TMP}"; then
   log "Curl looks blocked (size=${BYTES}). Trying Playwright fallback…"
-  # Спроба 2: Playwright (реальний Chromium)
-  "${PY_BIN}" scripts/update_metals_playwright.py "${OUT}" || {
+  python3 scripts/update_metals_playwright.py "${OUT}" || {
     log "ERROR: Playwright fallback failed too."
     rm -f "${TMP}"
     exit 1
