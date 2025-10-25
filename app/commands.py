@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import html as _html
 from datetime import datetime, timedelta
 
 from aiogram.exceptions import TelegramBadRequest
@@ -45,7 +46,7 @@ IMPACT_EMOJI = {
     "Non-economic": "⚪️",
 }
 
-METALS_TODAY_HTML = os.getenv("METALS_TODAY_HTML", "./metals_today.html")
+METALS_TODAY_HTML = os.getenv("METALS_TODAY_HTML", "./data/metals_today.html")
 
 # --------------------------- helpers ---------------------------
 
@@ -808,10 +809,12 @@ async def show_topic(c: CallbackQuery):
     _, topic_key = c.data.split(":", 1)
 
     td = TOPIC_DEFS.get(topic_key, {})
-    title = (td.get("title", {}) or {}).get("ua" if lang == "ua" else "en", "Topic")
-    blurb = (td.get("blurb", {}) or {}).get("ua" if lang == "ua" else "en", "")
+    # екранізуємо заголовок та підзаголовок
+    raw_title = (td.get("title", {}) or {}).get("ua" if lang == "ua" else "en", "Topic")
+    raw_blurb = (td.get("blurb", {}) or {}).get("ua" if lang == "ua" else "en", "")
+    title = _html.escape(raw_title, quote=False)
+    blurb = _html.escape(raw_blurb, quote=False)
 
-    # Беремо список (EN за замовчуванням, UA – якщо вибрано)
     base_lang = "ua" if lang == "ua" else "en"
     expl = TOPIC_EXPLAINERS.get(topic_key, {}).get(base_lang, [])
     if not expl:
@@ -821,12 +824,16 @@ async def show_topic(c: CallbackQuery):
 
     for name, desc in expl:
         display_name = name
-        # Якщо користувач обрав UA — додаємо переклад у дужках:
         if lang == "ua":
             ua = UA_DICT.get(name)
             if ua and ua != name:
                 display_name = f"{name} ({ua})"
-        lines.append(f"• <b>{display_name}</b> — {desc}")
+
+        # ВАЖЛИВО: екранізуємо текст, щоб '<50' не ламав HTML
+        dn_safe = _html.escape(display_name, quote=False)
+        desc_safe = _html.escape(desc, quote=False)
+
+        lines.append(f"• <b>{dn_safe}</b> — {desc_safe}")
 
     text = "\n".join(lines)
 
