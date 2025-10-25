@@ -5,7 +5,24 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime
+from datetime import datetime, timedelta
+from .config import LOCAL_TZ
+
+async def on_startup(*_):
+    setup_jobs()
+    if not scheduler.running:
+        scheduler.start()
+        print(f"[scheduler] ✅ started (tz={scheduler.timezone}) at {datetime.now(LOCAL_TZ)}")
+
+    # 🔹 разовий запуск через 5 секунд після старту (щоб побачити, що все працює)
+    scheduler.add_job(
+        update_metals,
+        trigger="date",
+        run_date=datetime.now(LOCAL_TZ) + timedelta(seconds=5),
+        id="metals_update_warmup",
+        replace_existing=True,
+    )
+    print("[scheduler] queued warmup job +5s")
 
 from .config import BOT_TOKEN, LOCAL_TZ
 
@@ -36,20 +53,27 @@ def setup_jobs() -> None:
         update_metals,
         trigger="cron",
         hour="6-23",       # щогодини 06..23 локального часу
-        minute="0",        # на нульовій хвилині
+        minute="*/5",        # кожні 5 хвилин
         id="metals_update_hourly",
         replace_existing=True,
         misfire_grace_time=600,
     )
 
-async def on_startup(*_) -> None:
+async def on_startup(*_):
     setup_jobs()
     if not scheduler.running:
         scheduler.start()
-        print("[scheduler] ✅ started successfully")
-        await update_metals()
-    else:
-        print("[scheduler] ⚙️ already running")
+        print(f"[scheduler] ✅ started (tz={scheduler.timezone}) at {datetime.now(LOCAL_TZ)}")
+
+    # 🔹 разовий запуск через 5 секунд після старту (щоб побачити, що все працює)
+    scheduler.add_job(
+        update_metals,
+        trigger="date",
+        run_date=datetime.now(LOCAL_TZ) + timedelta(seconds=5),
+        id="metals_update_warmup",
+        replace_existing=True,
+    )
+    print("[scheduler] queued warmup job +5s")
 
 async def on_shutdown(*_) -> None:
     if scheduler.running:
