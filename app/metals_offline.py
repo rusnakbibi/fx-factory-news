@@ -124,6 +124,16 @@ _COUNTRY_NAMES = {
     # доповниш за потреби
 }
 
+def _esc(s: str | None) -> str:
+    if s is None:
+        return ""
+    # Мінімальна екранізація для Telegram HTML
+    return (
+        s.replace("&", "&amp;")
+         .replace("<", "&lt;")
+         .replace(">", "&gt;")
+    )
+
 def _split_country_prefix(title: str) -> tuple[str, str]:
     """
     Багато подій мають префікс типу 'UK ...', 'EZ ...'.
@@ -138,37 +148,33 @@ def _split_country_prefix(title: str) -> tuple[str, str]:
 
 def mm_event_to_card_text(ev: MMEvent, lang: str = "ua") -> str:
     """
-    Рендер у форматі як на скріні з форекса:
-    • Wed 09:00 — 🔴 CPI y/y
+    • Wed 09:00 — 🔴 Title
     Country
-    Forecast: ... | Previous: ... (і Actual: ... якщо є)
+    Actual/Forecast/Previous ...
     """
-    # час у локалі
     t_local = ev.dt_utc.astimezone(LOCAL_TZ).strftime("%a %H:%M")
 
-    # impact → emoji
     impact_norm = (ev.impact or "").strip().title()
     if impact_norm not in _IMPACT_EMOJI:
-        # інколи з парсера приходить '' — лишимо крапку або ⚪️
         impact_norm = "Non-economic" if not ev.impact else impact_norm
     emoji = _IMPACT_EMOJI.get(impact_norm, "•")
 
-    # країна з префікса в заголовку
+    # країна з префікса
     code, clean_title = _split_country_prefix(ev.title or "")
     country_line = ""
     if code:
         name = _COUNTRY_NAMES.get(code, code)
-        country_line = f"{name}"
+        country_line = _esc(name)
 
-    # складання рядків
-    head = f"• {t_local} — {emoji} <b>{clean_title or (ev.title or '').strip()}</b>"
+    head = f"• {t_local} — {emoji} <b>{_esc(clean_title or (ev.title or '').strip())}</b>"
+
     stats = []
     if ev.actual:
-        stats.append(f"Actual: <b>{ev.actual}</b>")
+        stats.append(f"Actual: <b>{_esc(ev.actual)}</b>")
     if ev.forecast:
-        stats.append(f"Forecast: {ev.forecast}")
+        stats.append(f"Forecast: {_esc(ev.forecast)}")
     if ev.previous:
-        stats.append(f"Previous: {ev.previous}")
+        stats.append(f"Previous: {_esc(ev.previous)}")
 
     lines = [head]
     if country_line:

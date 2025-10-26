@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import re
 import html as _html
+from pathlib import Path
 from datetime import datetime, timedelta
 
 from aiogram.exceptions import TelegramBadRequest
@@ -52,6 +53,27 @@ METALS_TODAY_HTML = os.getenv("METALS_TODAY_HTML", "/data/metals_today.html")
 METALS_WEEK_HTML_PATH = os.getenv("METALS_WEEK_HTML_PATH", "/data/metals_week.html")
 
 # --------------------------- helpers ---------------------------
+
+
+def resolve_data_path(filename: str) -> str:
+    """
+    Повертає коректний шлях до файлу:
+    - локально: ./data/<file>
+    - на Render: /data/<file>
+    """
+    # 1️⃣ Спочатку шукаємо env (якщо ти прописав у .env)
+    env_path = os.getenv(f"METALS_{filename.upper().replace('.', '_')}")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    # 2️⃣ Якщо існує /data/<file> (Render)
+    path_data = Path("/data") / filename
+    if path_data.exists():
+        return str(path_data)
+
+    # 3️⃣ Інакше fallback на ./data/<file> (локалка)
+    path_local = Path(__file__).resolve().parents[1] / "data" / filename
+    return str(path_local)
 
 def _rowdict(row) -> dict:
     if row is None:
@@ -411,7 +433,8 @@ async def _send_week(m: Message, subs: dict):
 
 async def _send_metals_today_offline(m: Message, lang: str):
     try:
-        events = load_today_from_file(METALS_TODAY_HTML)
+        html_path = resolve_data_path("metals_today.html")
+        events = load_today_from_file(html_path)
     except Exception as e:
         await m.answer(_t_en_ua(lang, f"Metals (offline) parse error: {e}", f"Метали (офлайн) помилка парсингу: {e}"))
         return
@@ -429,6 +452,7 @@ async def _send_metals_today_offline(m: Message, lang: str):
 # --- допоміжна функція відправки (аналог твоєї _send_metals_today_offline) ---
 async def _send_metals_week_offline(m: Message, html_path: str = METALS_WEEK_HTML_PATH):
     try:
+        html_path = resolve_data_path("metals_week.html")
         events = load_week_from_file(html_path)  # повертає List[MMEvent]
         if not events:
             await m.answer("No metals events for this week (offline).")
