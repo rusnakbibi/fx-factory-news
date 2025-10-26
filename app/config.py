@@ -32,6 +32,8 @@ LANG_MODES = ["en","uk","auto"]  # 'auto' = detect from system TZ (example) or d
 
 SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "").strip()
 
+METALS_WEEK_HTML_PATH = os.getenv("METALS_WEEK_HTML_PATH", "data/metals_week.html")
+
 # User-Agent та базові заголовки для запитів HTML
 UA_HEADERS = {
     "User-Agent": (

@@ -45,6 +45,21 @@ async def update_metals():
     else:
         print("[update_metals] ok:", (stdout.decode(errors="ignore") or "").strip())
 
+async def update_metals_week():
+    """
+    Оновлення файлу тижня (data/metals_week.html) через скрипт.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "bash", "scripts/update_metals_week.sh",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        print("[update_metals_week] non-zero exit:", proc.returncode, stderr.decode(errors="ignore"))
+    else:
+        print("[update_metals_week] ok:", stdout.decode(errors="ignore").strip())
+
 def setup_jobs() -> None:
     """
     Регіструємо cron-джобу. Стартуємо scheduler на startup.
@@ -55,6 +70,27 @@ def setup_jobs() -> None:
         hour="6-23",       # щогодини 06..23 локального часу
         minute="0",        # every hour at 00 minutes
         id="metals_update_hourly",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
+        update_metals_week,
+        trigger="cron",
+        hour="0",
+        minute="20",
+        id="metals_week_daily_0020",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
+        update_metals_week,
+        trigger="cron",
+        day_of_week="sun",
+        hour="23",
+        minute="55",
+        id="metals_week_sun_2355",
         replace_existing=True,
         misfire_grace_time=600,
     )

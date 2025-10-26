@@ -30,6 +30,8 @@ from .keyboards import (
 )
 from .db import ensure_sub, get_sub, unsubscribe, set_sub
 
+from .metals_offline_week import load_week_from_file
+
 from .metals_offline import (
     load_today_from_file,
     mm_event_to_card_text,
@@ -47,6 +49,7 @@ IMPACT_EMOJI = {
 }
 
 METALS_TODAY_HTML = os.getenv("METALS_TODAY_HTML", "./data/metals_today.html")
+METALS_WEEK_HTML_PATH = os.getenv("METALS_WEEK_HTML_PATH", "data/metals_week.html")
 
 # --------------------------- helpers ---------------------------
 
@@ -423,6 +426,32 @@ async def _send_metals_today_offline(m: Message, lang: str):
         body = "\n\n".join(mm_event_to_card_text(ev, lang=lang) for ev in pack)
         await m.answer(header + body, parse_mode="HTML", disable_web_page_preview=True)
         header = ""
+# --- допоміжна функція відправки (аналог твоєї _send_metals_today_offline) ---
+async def _send_metals_week_offline(m: Message, html_path: str = METALS_WEEK_HTML_PATH):
+    try:
+        events = load_week_from_file(html_path)  # повертає List[MMEvent]
+        if not events:
+            await m.answer("No metals events for this week (offline).")
+            return
+
+        # шматуємо на порції по ~10-12 карток, щоб не впертися в ліміт повідомлення
+        chunk, acc = [], 0
+        for ev in events:
+            card = mm_event_to_card_text(ev)  # той самий формат, що й для today
+            chunk.append(card)
+
+            # груба евристика по довжині
+            acc += len(card)
+            if len(chunk) >= 12 or acc > 3500:
+                await m.answer("\n\n".join(chunk))
+                chunk, acc = [], 0
+
+        if chunk:
+            await m.answer("\n\n".join(chunk))
+    except FileNotFoundError:
+        await m.answer(f"Metals (offline week) file not found: {html_path}")
+    except Exception as e:
+        await m.answer(f"Metals (offline week) parse error: {e}")
 
 # --------------------------- text commands ---------------------------
 
@@ -487,20 +516,6 @@ async def cmd_weekly_summary(m: Message):
         subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
     await _send_weekly_summary(m, subs)
 
-
-# ---- з меню
-@router.callback_query(F.data == "menu:tutorial")
-async def cb_tutorial(c: CallbackQuery):
-    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
-    lang = subs.get("lang_mode", "en")
-    await c.message.edit_text(
-        _tutorial_text(lang),
-        parse_mode="HTML",
-        reply_markup=back_kb(lang),
-        disable_web_page_preview=True
-    )
-    await c.answer()
-
 @router.message(Command("about"))
 async def cmd_about(m: Message):
     subs = _rowdict(get_sub(m.from_user.id, m.chat.id))
@@ -518,6 +533,24 @@ async def cmd_faq(m: Message):
 @router.message(Command("metals_today"))
 async def cmd_metals_today(m: Message):
     await _send_metals_today_offline(m, METALS_TODAY_HTML)
+
+@router.message(Command("metals_week"))
+async def cmd_metals_week(m: Message):
+    await _send_metals_week_offline(m, METALS_WEEK_HTML_PATH)
+
+
+# ---- з меню
+@router.callback_query(F.data == "menu:tutorial")
+async def cb_tutorial(c: CallbackQuery):
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = subs.get("lang_mode", "en")
+    await c.message.edit_text(
+        _tutorial_text(lang),
+        parse_mode="HTML",
+        reply_markup=back_kb(lang),
+        disable_web_page_preview=True
+    )
+    await c.answer()
 
 # --------------------------- inline:  ---------------------------
 
@@ -908,9 +941,21 @@ async def cb_metals_daily(c: CallbackQuery):
     await c.answer()
 
 @router.callback_query(F.data == "metals:week")
-async def cb_metals_week(c: CallbackQuery):
-    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
-    lang = _lang(subs)
-    await c.message.edit_text(_t_en_ua(lang, "This week for Metals — coming soon.", "Цього тижня для Металів — скоро."),
-                              reply_markup=metals_main_menu_kb(lang=lang, back_to_root=True))
-    await c.answer()
+async def cb_metals_thisweek(c: CallbackQuery):
+    # опціонально: короткий “тайпінг/алерт”
+    await c.answer("Fetching metals (offline) — this week…", show_alert=False)
+
+    # оновимо шапку повідомлення (як ти робиш у today)
+    try:
+        await c.message.edit_text("🪙 Metals — This week:")
+    except Exception:
+        pass
+
+    # віддати тижневі події
+    await _send_metals_week_offline(c.message, METALS_WEEK_HTML_PATH)
+
+    # і повернути під ним те саме меню Metals (як у Forex)
+    try:
+        await c.message.answer("Back to menu:", reply_markup=metals_main_menu_kb(lang=_lang(_rowdict(get_sub(c.from_user.id, c.message.chat.id))), back_to_root=True))
+    except Exception:
+        pass
