@@ -3,7 +3,7 @@ set -euo pipefail
 
 # до кореня репо
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
-OUT="${BASE_DIR}/data/metals_week.html"
+OUT="${METALS_WEEK_HTML:-/data/metals_week.html}"
 TMP="${BASE_DIR}/.metals_week_tmp.html"
 URL="https://www.metalsmine.com/calendar?week=this"
 

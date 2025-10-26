@@ -49,7 +49,7 @@ IMPACT_EMOJI = {
 }
 
 METALS_TODAY_HTML = os.getenv("METALS_TODAY_HTML", "./data/metals_today.html")
-METALS_WEEK_HTML_PATH = os.getenv("METALS_WEEK_HTML_PATH", "data/metals_week.html")
+METALS_WEEK_HTML_PATH = os.getenv("METALS_WEEK_HTML_PATH", "./data/metals_week.html")
 
 # --------------------------- helpers ---------------------------
 

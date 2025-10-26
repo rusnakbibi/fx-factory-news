@@ -4,8 +4,8 @@ set -euo pipefail
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
 # ---- де зберігати HTML ----
-# локально зручно ./data/metals_today.html, на Render став METALS_HTML_PATH=/data/metals_today.html
-OUT="${METALS_HTML_PATH:-./data/metals_today.html}"
+# локально зручно ./data/metals_today.html, на Render став METALS_TODAY_HTML=/data/metals_today.html
+OUT="${METALS_TODAY_HTML:-/data/metals_today.html}"
 TMP="$(mktemp -t metals_today.XXXXXX.html)"
 URL="https://www.metalsmine.com/calendar?day=today"
 
