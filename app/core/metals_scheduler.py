@@ -1,30 +1,11 @@
-# app/bot.py
-from __future__ import annotations
-
+# app/core/metals_scheduler.py
 import asyncio
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import logging
 from datetime import datetime, timedelta
-from .config import LOCAL_TZ
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from ..config.settings import LOCAL_TZ
 
-async def on_startup(*_):
-    setup_jobs()
-    if not scheduler.running:
-        scheduler.start()
-        print(f"[scheduler] ✅ started (tz={scheduler.timezone}) at {datetime.now(LOCAL_TZ)}")
-
-    # 🔹 разовий запуск через 5 секунд після старту (щоб побачити, що все працює)
-    scheduler.add_job(
-        update_metals,
-        trigger="date",
-        run_date=datetime.now(LOCAL_TZ) + timedelta(seconds=5),
-        id="metals_update_warmup",
-        replace_existing=True,
-    )
-    print("[scheduler] queued warmup job +5s")
-
-from .config import BOT_TOKEN, LOCAL_TZ
+log = logging.getLogger(__name__)
 
 # Планувальник (часова зона з конфіга)
 scheduler = AsyncIOScheduler(timezone=LOCAL_TZ)
@@ -33,7 +14,7 @@ async def update_metals():
     """
     Оновлення офлайн-файлу для Metals: викликає bash-скрипт.
     """
-    print(f"[update_metals] triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    log.info(f"[update_metals] triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     proc = await asyncio.create_subprocess_exec(
         "bash", "scripts/update_metals.sh",
         stdout=asyncio.subprocess.PIPE,
@@ -41,14 +22,15 @@ async def update_metals():
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        print("[update_metals] non-zero exit:", proc.returncode, stderr.decode(errors="ignore"))
+        log.error(f"[update_metals] non-zero exit: {proc.returncode} {stderr.decode(errors='ignore')}")
     else:
-        print("[update_metals] ok:", (stdout.decode(errors="ignore") or "").strip())
+        log.info(f"[update_metals] ok: {(stdout.decode(errors='ignore') or '').strip()}")
 
 async def update_metals_week():
     """
     Оновлення файлу тижня (data/metals_week.html) через скрипт.
     """
+    log.info(f"[update_metals_week] triggered at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     proc = await asyncio.create_subprocess_exec(
         "bash", "scripts/update_metals_week.sh",
         stdout=asyncio.subprocess.PIPE,
@@ -56,9 +38,9 @@ async def update_metals_week():
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        print("[update_metals_week] non-zero exit:", proc.returncode, stderr.decode(errors="ignore"))
+        log.error(f"[update_metals_week] non-zero exit: {proc.returncode} {stderr.decode(errors='ignore')}")
     else:
-        print("[update_metals_week] ok:", stdout.decode(errors="ignore").strip())
+        log.info(f"[update_metals_week] ok: {stdout.decode(errors='ignore').strip()}")
 
 def setup_jobs() -> None:
     """
@@ -94,12 +76,14 @@ def setup_jobs() -> None:
         replace_existing=True,
         misfire_grace_time=600,
     )
+    log.info("[setup_jobs] Metals update jobs registered")
 
-async def on_startup(*_):
+async def start_metals_scheduler():
+    """Запуск планувальника металів."""
     setup_jobs()
     if not scheduler.running:
         scheduler.start()
-        print(f"[scheduler] ✅ started (tz={scheduler.timezone}) at {datetime.now(LOCAL_TZ)}")
+        log.info(f"[scheduler] ✅ started (tz={scheduler.timezone}) at {datetime.now(LOCAL_TZ)}")
 
     # 🔹 разовий запуск через 5 секунд після старту (щоб побачити, що все працює)
     scheduler.add_job(
@@ -109,27 +93,11 @@ async def on_startup(*_):
         id="metals_update_warmup",
         replace_existing=True,
     )
-    print("[scheduler] queued warmup job +5s")
+    log.info("[scheduler] queued warmup job +5s")
 
-async def on_shutdown(*_) -> None:
+async def stop_metals_scheduler():
+    """Зупинка планувальника металів."""
     if scheduler.running:
         scheduler.shutdown(wait=False)
+        log.info("[scheduler] ✅ stopped")
 
-def build_bot() -> Bot:
-    return Bot(
-        token=BOT_TOKEN,
-        default=DefaultBotProperties(parse_mode="HTML"),
-    )
-
-def build_dispatcher() -> Dispatcher:
-    dp = Dispatcher()
-
-    # Підключаємо основний router з командами
-    from .commands import router as commands_router
-    dp.include_router(commands_router)
-
-    # Хуки життєвого циклу
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-
-    return dp

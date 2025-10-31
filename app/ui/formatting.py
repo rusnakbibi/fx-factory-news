@@ -1,5 +1,8 @@
+# app/ui/formatting.py
 import hashlib
-from .models import FFEvent
+import html
+from ..core.models import FFEvent
+from ..services.translator import translate_title
 
 IMPACT_EMOJI = {
     "High": "🔴",
@@ -12,9 +15,7 @@ def event_hash(ev: FFEvent) -> str:
     base = f"{ev.date.isoformat()}|{ev.title}|{ev.country}|{ev.currency}|{ev.impact}"
     return hashlib.sha1(base.encode()).hexdigest()
 
-# app/formatting.py
-
-from .filters import normalize_impact
+from ..ui.filters import normalize_impact
 
 IMPACT_ICON = {
     "High": "🔴",
@@ -23,7 +24,7 @@ IMPACT_ICON = {
     "Non-economic": "⚪️",
 }
 
-def event_to_text(ev, tz) -> str:
+def event_to_text(ev, tz, lang: str = "en") -> str:
     """
     Красивий компактний формат для Telegram.
     1) Час (локальний) + іконка рівня + жирна назва події
@@ -37,8 +38,13 @@ def event_to_text(ev, tz) -> str:
     impact_norm = normalize_impact(getattr(ev, "impact", "") or "")
     icon = IMPACT_ICON.get(impact_norm, "🔘")
 
+    # переклад назви події
+    translated_title = translate_title(ev.title, lang)
+    # екрануємо HTML спецсимволи
+    translated_title = html.escape(translated_title)
+
     # рядок 1: час + назва
-    head = f"🕒 <b>{lt:%a %d %b %H:%M}</b> — {icon} <b>{ev.title}</b>"
+    head = f"🕒 <b>{lt:%a %d %b %H:%M}</b> — {icon} <b>{translated_title}</b>"
 
     # рядок 2: валюта / країна
     cur = (getattr(ev, "currency", "") or "").strip().upper()
@@ -46,9 +52,9 @@ def event_to_text(ev, tz) -> str:
     who = []
     if cur:
         # моноширинний «бейдж» — в Телеграмі читається значно краще
-        who.append(f"<b><code>{cur}</code></b>")
+        who.append(f"<b><code>{html.escape(cur)}</code></b>")
     if country and country != cur:
-        who.append(country)
+        who.append(html.escape(country))
     meta = " ".join(who) if who else ""
 
     # рядок 3: метрики (лише наявні), спочатку Actual
@@ -57,11 +63,11 @@ def event_to_text(ev, tz) -> str:
     forecast = getattr(ev, "forecast", None)
     previous = getattr(ev, "previous", None)
     if actual:
-        stats.append(f"Actual: <b>{actual}</b>")
+        stats.append(f"Actual: <b>{html.escape(str(actual))}</b>")
     if forecast:
-        stats.append(f"Forecast: <b>{forecast}</b>")
+        stats.append(f"Forecast: <b>{html.escape(str(forecast))}</b>")
     if previous:
-        stats.append(f"Previous: <b>{previous}</b>")
+        stats.append(f"Previous: <b>{html.escape(str(previous))}</b>")
     stats_line = " | ".join(stats)
 
     # складання повідомлення

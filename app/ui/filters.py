@@ -1,9 +1,9 @@
-# app/filters.py
+# app/ui/filters.py
 from __future__ import annotations
 from typing import Iterable, List, Set
 import logging, re
 
-from .models import FFEvent
+from ..core.models import FFEvent, MMEvent
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +109,48 @@ def filter_events(
         cat = categorize_event(ev)
         if cat_set and cat not in cat_set:
             continue
+
+        out.append(ev)
+    return out
+
+# ---------------- Metals Filtering ----------------
+
+def normalize_country(raw: str | None) -> str:
+    """
+    Normalizes country codes for metals events.
+    Examples: "us" → "US", "uk " → "UK", "EZ" → "EZ"
+    """
+    s = (raw or "").strip().upper()
+    s = re.sub(r"[^A-Z]", "", s)  # Remove non-letters
+    return s[:3]  # Max 3 chars: US, UK, EZ, etc.
+
+def filter_metals_events(
+    events: Iterable[MMEvent],
+    impacts: Iterable[str] | None = None,
+    countries: Iterable[str] | None = None,
+) -> List[MMEvent]:
+    """
+    Filters metals events by:
+      - impact (High/Medium/Low/Non-economic)
+      - country code (US/UK/EZ/etc.)
+    Empty sets = no filtering for that criterion.
+    """
+    imp_set: Set[str] = {normalize_impact(i) for i in (impacts or []) if normalize_impact(i)}
+    country_set: Set[str] = {normalize_country(c) for c in (countries or []) if normalize_country(c)}
+
+    out: List[MMEvent] = []
+    for ev in events:
+        # ---------- Impact filter ----------
+        imp = normalize_impact(ev.impact or "")
+        if imp_set and imp and imp not in imp_set:
+            continue
+
+        # ---------- Country filter ----------
+        if country_set:
+            country = normalize_country(ev.country or "")
+            # Skip if no country or not in selected list
+            if not country or country not in country_set:
+                continue
 
         out.append(ev)
     return out

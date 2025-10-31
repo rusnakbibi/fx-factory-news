@@ -1,4 +1,4 @@
-# app/ff_client.py
+# app/services/forex_client.py
 from __future__ import annotations
 
 import asyncio
@@ -11,9 +11,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 
-from .models import FFEvent
-from .utils import str_or_none
-from .config import FF_THISWEEK, UTC
+from ..core.models import FFEvent
+from ..utils.helpers import str_or_none
+from ..config.settings import FF_THISWEEK, UTC
 from .translator import translate_title
 
 log = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ _CACHE_TTL_SECONDS = int(os.getenv("FF_FX_TTL", "120"))  # 2 хв за дефо�
 _TW_CACHE: Dict[Tuple[str], Tuple[float, List[FFEvent]]] = {}  # key=(lang,) -> (expires_epoch, events)
 _CACHE_LOCK = asyncio.Lock()
 
-# B) “Сирий” кеш thisweek.json (спільний для всіх мов)
+# B) "Сирий" кеш thisweek.json (спільний для всіх мов)
 _RAW_TTL_SECONDS = int(os.getenv("FF_RAW_TTL", "600"))  # 10 хв за дефолтом
 _RAW_JSON: Optional[List[Dict[str, Any]]] = None
 _RAW_EXPIRES_AT: float = 0.0  # epoch seconds
@@ -271,7 +271,7 @@ async def _autorefresh_loop():
                     _TW_CACHE[("en",)] = (time.time() + _CACHE_TTL_SECONDS, events)
             except Exception as e:
                 log.warning(f"[ff_client] autorefresh tick failed: {e}")
-            # спимо м’яко
+            # спимо м'яко
             for _ in range(interval * 6):  # крок 10 секунд
                 await asyncio.sleep(10)
     except asyncio.CancelledError:

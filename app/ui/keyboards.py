@@ -1,4 +1,4 @@
-# app/keyboards.py
+# app/ui/keyboards.py
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # ---- base dictionaries ----
@@ -7,10 +7,20 @@ COMMON_CURRENCIES = ["USD","EUR","GBP","JPY","CHF","CAD","AUD","NZD","CNY"]
 ALERT_PRESETS = [5, 10, 15, 30, 60, 120]
 LANG_MODES = ["en", "ua"]
 
+# ---- Metals-specific constants ----
+METALS_COUNTRIES = ["US", "UK", "EZ", "DE", "FR", "IT", "ES", "CH", "CA", "JP", "CN", "AU"]
+
 # flags for currencies (emoji)
 CURR_FLAGS = {
     "USD": "🇺🇸", "EUR": "🇪🇺", "GBP": "🇬🇧", "JPY": "🇯🇵", "CHF": "🇨🇭",
     "CAD": "🇨🇦", "AUD": "🇦🇺", "NZD": "🇳🇿", "CNY": "🇨🇳",
+}
+
+# flags for countries (emoji)
+COUNTRY_FLAGS = {
+    "US": "🇺🇸", "UK": "🇬🇧", "EZ": "🇪🇺", "DE": "🇩🇪", "FR": "🇫🇷", 
+    "IT": "🇮🇹", "ES": "🇪🇸", "CH": "🇨🇭", "CA": "🇨🇦", "JP": "🇯🇵", 
+    "CN": "🇨🇳", "AU": "🇦🇺",
 }
 
 # localized labels
@@ -333,3 +343,74 @@ def back_to_topics_kb(lang: str = "en") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text=_t(lang, "back_topics"), callback_data="menu:topics")]]
     )
+
+# ---------- METALS SETTINGS KEYBOARD ----------
+def metals_settings_kb(
+    selected_impacts,
+    selected_countries,
+    lang_mode: str = "en",
+) -> InlineKeyboardMarkup:
+    """
+    Settings keyboard for Metals module.
+    Filters by impact and country (not currency).
+    """
+    lang = lang_mode
+
+    # --- Impacts (2x2 layout) ---
+    imp_map = [
+        ("High", _t(lang, "imp_high")),
+        ("Medium", _t(lang, "imp_med")),
+        ("Low", _t(lang, "imp_low")),
+        ("Non-economic", _t(lang, "imp_noneco")),
+    ]
+    imp_btns = [
+        InlineKeyboardButton(
+            text=f"{_onoff(src in selected_impacts)} {label}",
+            callback_data=f"metals_imp:{src}"
+        )
+        for src, label in imp_map
+    ]
+
+    # --- Countries (3x4 grid) ---
+    def label_country(code: str) -> str:
+        return f"{COUNTRY_FLAGS.get(code,'')} {code}".strip()
+
+    country_buttons = [
+        InlineKeyboardButton(
+            text=f"{_onoff(code in selected_countries)} {label_country(code)}",
+            callback_data=f"metals_country:{code}"
+        )
+        for code in METALS_COUNTRIES
+    ]
+
+    rows = []
+    # impacts split into two rows
+    rows.append(imp_btns[0:2])   # High, Medium
+    rows.append(imp_btns[2:4])   # Low, Non-economic
+
+    # countries grid 3x4
+    rows.append(country_buttons[0:3])
+    rows.append(country_buttons[3:6])
+    rows.append(country_buttons[6:9])
+    rows.append(country_buttons[9:12])
+
+    # Language row
+    lang_buttons = [
+        InlineKeyboardButton(
+            text=_radio(lang == "en") + _t(lang, "lang_en"),
+            callback_data="metals_lang:en"
+        ),
+        InlineKeyboardButton(
+            text=_radio(lang == "ua") + _t(lang, "lang_ua"),
+            callback_data="metals_lang:ua"
+        ),
+    ]
+    rows.append(lang_buttons)
+
+    # Reset and back buttons
+    rows.append([
+        InlineKeyboardButton(text=f"🧹 {_t(lang,'reset_filters')}", callback_data="metals_reset"),
+    ])
+    rows.append([InlineKeyboardButton(text=f"◀️ {_t(lang,'back')}", callback_data="root:metals")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)

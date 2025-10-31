@@ -1,55 +1,4 @@
-import os
-from datetime import timezone
-
-try:
-    from zoneinfo import ZoneInfo
-except Exception:
-    import pytz  # type: ignore
-    class ZoneInfo:
-        def __init__(self, name):
-            import pytz
-            self.tz = pytz.timezone(name)
-        def utcoffset(self, dt): return self.tz.utcoffset(dt)
-        def dst(self, dt): return self.tz.dst(dt)
-        def tzname(self, dt): return self.tz.tzname(dt)
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-TZ_NAME = os.getenv("TZ", "Europe/Kyiv")
-LOCAL_TZ = ZoneInfo(TZ_NAME)
-DEFAULT_ALERT_MINUTES = int(os.getenv("DEFAULT_ALERT_MINUTES", "30"))
-POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "300"))
-DB_PATH = os.getenv("DB_PATH", "bot.db")
-
-FF_THISWEEK = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-FF_NEXTWEEK = "https://nfs.faireconomy.media/ff_calendar_nextweek.json"
-UTC = timezone.utc
-
-# UI constants
-COMMON_CURRENCIES = ["USD","EUR","GBP","JPY","AUD","NZD","CAD","CHF","CNY"]
-IMPACTS = ["High","Medium","Low","Non-economic"]
-ALERT_PRESETS = [5, 15, 30, 60]
-LANG_MODES = ["en","uk","auto"]  # 'auto' = detect from system TZ (example) or default to en
-
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY", "").strip()
-
-METALS_WEEK_HTML_PATH = os.getenv("METALS_WEEK_HTML_PATH", "data/metals_week.html")
-
-# User-Agent та базові заголовки для запитів HTML
-UA_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_6) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-}
-
-# Куди писати агрегований JSON (локально або у тимчасову/постійну директорію на Render)
-AGGREGATE_JSON_PATH = os.getenv("AGGREGATE_JSON_PATH", "aggregated_calendar.json")
-
-
+# app/config/topics.py
 TOPIC_DEFS = {
     # ---------------- ІНДЕКСИ ЦІН ----------------
     "prices": {
@@ -61,6 +10,7 @@ TOPIC_DEFS = {
         "keywords": [
             "cpi", "core cpi", "ppi", "core ppi", "producer price",
             "consumer price", "inflation rate", "hicp", "rpi",
+            "cpi flash estimate", "import prices", "s&p/cs composite", "hpi",
         ],
     },
 
@@ -87,6 +37,7 @@ TOPIC_DEFS = {
         "keywords": [
             "pmi", "manufacturing pmi", "services pmi",
             "composite pmi", "flash manufacturing", "flash services",
+            "richmond manufacturing index",
         ],
     },
 
@@ -114,6 +65,8 @@ TOPIC_DEFS = {
             "inflation rate", "interest rate", "rate statement", "fomc statement",
             "monetary policy", "policy statement", "ecb press conference",
             "boj policy statement", "boe gov speech", "core inflation",
+            "overnight rate", "main refinancing rate", "boj policy rate",
+            "federal funds rate", "fed funds rate", "fomc minutes", "fomc meeting",
         ],
     },
 
@@ -128,6 +81,7 @@ TOPIC_DEFS = {
             "trade balance", "current account", "retail sales", "core retail sales",
             "industrial production", "factory orders", "durable goods orders",
             "construction output", "building permits", "housing starts",
+            "pending home sales",
         ],
     },
 
@@ -142,6 +96,8 @@ TOPIC_DEFS = {
             "fomc member", "fed chair", "ecb president",
             "boc business outlook", "central bank", "rba", "rbnz", "snb",
             "lagarde", "powell", "governor", "policy decision",
+            "rba gov bullock", "rbnz gov hawkesby", "boc monetary policy report",
+            "boc press conference", "boj outlook report", "boj press conference",
         ],
     },
 
@@ -154,7 +110,10 @@ TOPIC_DEFS = {
         },
         "keywords": [
             "consumer confidence", "business confidence", "consumer sentiment",
-            "leading index", "economic growth", "balance of trade",
+            "leading index", "economic growth", "balance of trade", "budget balance",
+            "m3 money supply", "m4 money supply", "private loans", "net lending",
+            "ifo business climate", "kof economic barometer", "ubs economic expectations",
+            "cbi realized sales", "international reserves",
         ],
     },
 
@@ -165,7 +124,7 @@ TOPIC_DEFS = {
             "en": "Covers non-economic or neutral calendar events like holidays or IMF meetings.",
             "ua": "Охоплює нейтральні події або неекономічні дати, як-от вихідні чи засідання МВФ.",
         },
-        "keywords": ["holiday", "bank holiday", "tentative", "imf", "meetings"],
+        "keywords": ["holiday", "bank holiday", "tentative", "imf", "meetings", "daylight saving time shift"],
     },
 }
 
@@ -182,6 +141,9 @@ TOPIC_EXPLAINERS = {
             ("PPI y/y", "Producer prices vs the same month last year. Useful for spotting long-term cost inflation for businesses."),
             ("Core PPI", "Excludes volatile producer items such as energy; a measure of core production inflation."),
             ("HICP", "Harmonised index for EU countries — makes inflation comparable across the Eurozone."),
+            ("CPI Flash Estimate", "Preliminary inflation reading for the Eurozone; comes early and often moves EUR pairs sharply."),
+            ("Import Prices", "Tracks cost of imported goods; reflects external inflation pressures from trade and FX."),
+            ("S&P/CS Composite-20 HPI", "U.S. house price index covering 20 major metro areas; signals housing market strength."),
             ("UoM Inflation Expectations", "Survey that reflects how households expect inflation to evolve in the future."),
         ],
         "ua": [
@@ -193,6 +155,9 @@ TOPIC_EXPLAINERS = {
             ("PPI y/y", "Ціни виробників у річному вимірі. Дає уявлення про тенденції витрат бізнесу."),
             ("Core PPI", "Показник виробничої інфляції без енергії та інших волатильних складових."),
             ("HICP", "Гармонізований індекс інфляції для країн ЄС — забезпечує порівнянність даних між ними."),
+            ("CPI Flash Estimate", "Попередній показник інфляції для Єврозони; виходить рано і часто сильно рухає пари з EUR."),
+            ("Import Prices", "Відслідковує вартість імпортних товарів; показує зовнішній інфляційний тиск через торгівлю та валютний курс."),
+            ("S&P/CS Composite-20 HPI", "Індекс цін на житло у 20 найбільших американських містах; сигналізує про стан ринку нерухомості."),
             ("UoM Inflation Expectations", "Опитування Мічиганського університету про очікування інфляції в коротко- та довгостроковій перспективі."),
         ],
     },
@@ -222,12 +187,14 @@ TOPIC_EXPLAINERS = {
             ("Services PMI", "Measures activity in the services sector, which dominates most modern economies."),
             ("Composite PMI", "Weighted combination of manufacturing and services — snapshot of total business conditions."),
             ("Flash PMI", "Preliminary reading for the month; comes earlier and often moves markets."),
+            ("Richmond Manufacturing Index", "Regional U.S. manufacturing survey from the Richmond Fed; early gauge of production trends."),
         ],
         "ua": [
             ("Manufacturing PMI", "Опитування виробників — понад 50 означає зростання, менше 50 — спад."),
             ("Services PMI", "Відображає активність у секторі послуг, який є основним у більшості економік."),
             ("Composite PMI", "Комбінує виробничий і сервісний PMI, даючи загальну картину ділової активності."),
             ("Flash PMI", "Попередній показник за місяць — публікується раніше, тому має сильний ринковий вплив."),
+            ("Richmond Manufacturing Index", "Регіональне опитування виробників від ФРС Річмонда; ранній індикатор виробничих трендів."),
         ],
     },
 
@@ -256,12 +223,24 @@ TOPIC_EXPLAINERS = {
             ("Rate Statement", "Details that accompany the rate decision, shaping future expectations."),
             ("FOMC/ECB/BOE/BOJ Press Conference", "Q&A sessions offering deeper insight into central bank thinking."),
             ("Monetary Policy Statement", "Official text outlining rationale for rate changes and economic outlook."),
+            ("Federal Funds Rate", "U.S. Fed's target rate for overnight lending between banks; primary tool for controlling U.S. inflation."),
+            ("Overnight Rate", "Rate at which banks lend to each other overnight; set by central banks like BOC."),
+            ("Main Refinancing Rate", "ECB's key lending rate for banks in the Eurozone; main lever for EUR monetary policy."),
+            ("BOJ Policy Rate", "Bank of Japan's benchmark interest rate; historically near zero or negative."),
+            ("FOMC Minutes", "Detailed record of the Fed's meeting discussions; reveals member views and forward guidance."),
+            ("FOMC Meeting", "Scheduled gathering where the Fed decides on interest rates and policy direction."),
         ],
         "ua": [
             ("Interest Rate Decision", "Оголошення центробанку щодо ключової ставки — головний інструмент контролю інфляції."),
             ("Rate Statement", "Супровідна заява, яка формує ринкові очікування щодо подальших дій."),
             ("FOMC/ECB/BOE/BOJ Press Conference", "Сесії запитань і відповідей, що розкривають позицію центробанку."),
             ("Monetary Policy Statement", "Офіційний текст із поясненням рішення та прогнозом для економіки."),
+            ("Federal Funds Rate", "Цільова ставка ФРС для міжбанківського кредитування овернайт; основний інструмент контролю інфляції в США."),
+            ("Overnight Rate", "Ставка, за якою банки кредитують одне одного овернайт; встановлюється центробанками, як-от Банк Канади."),
+            ("Main Refinancing Rate", "Ключова ставка ЄЦБ для кредитування банків у Єврозоні; основний важіль монетарної політики EUR."),
+            ("BOJ Policy Rate", "Базова процентна ставка Банку Японії; історично на рівні нуля або негативна."),
+            ("FOMC Minutes", "Детальний протокол засідання ФРС; розкриває думки членів та орієнтири на майбутнє."),
+            ("FOMC Meeting", "Заплановане засідання, на якому ФРС приймає рішення щодо ставок і напрямку політики."),
         ],
     },
 
@@ -273,6 +252,7 @@ TOPIC_EXPLAINERS = {
             ("Retail Sales", "Tracks consumer spending — vital for gauging domestic demand."),
             ("Industrial Production", "Measures manufacturing and energy output; reflects industrial cycle."),
             ("Building Permits", "Early indicator of construction activity and housing demand."),
+            ("Pending Home Sales", "Tracks home purchase contracts signed but not yet closed; leading indicator for the housing market."),
         ],
         "ua": [
             ("Trade Balance", "Різниця між експортом та імпортом. Профіцит зміцнює валюту, дефіцит — послаблює."),
@@ -280,6 +260,7 @@ TOPIC_EXPLAINERS = {
             ("Retail Sales", "Вимірює споживчі витрати — ключовий показник внутрішнього попиту."),
             ("Industrial Production", "Оцінює обсяги виробництва в промисловості та енергетиці."),
             ("Building Permits", "Ранній сигнал активності у сфері будівництва та житлового попиту."),
+            ("Pending Home Sales", "Відстежує підписані, але ще не завершені угоди купівлі житла; випереджаючий індикатор ринку нерухомості."),
         ],
     },
 
@@ -287,13 +268,25 @@ TOPIC_EXPLAINERS = {
     "cbanks": {
         "en": [
             ("Central Bank Speech", "Public remarks by top officials often move markets via policy hints."),
-            ("FOMC Statement", "U.S. Fed’s main communication tool — outlines rate stance and risks."),
+            ("FOMC Statement", "U.S. Fed's main communication tool — outlines rate stance and risks."),
             ("ECB/BOE/BOJ Decision", "Policy updates from major central banks that set global tone."),
+            ("RBA Gov Bullock Speaks", "Speech by Reserve Bank of Australia Governor; can signal rate outlook for AUD."),
+            ("RBNZ Gov Hawkesby Speaks", "Speech by Reserve Bank of New Zealand official; offers insight into NZD policy direction."),
+            ("BOC Monetary Policy Report", "Bank of Canada's detailed economic and inflation forecast; guides rate expectations."),
+            ("BOC Press Conference", "Q&A session after BOC rate decision; clarifies policy stance for CAD."),
+            ("BOJ Outlook Report", "Bank of Japan's forward-looking economic assessment; key for JPY traders."),
+            ("BOJ Press Conference", "Governor's remarks after policy meeting; reveals BOJ's view on rates and yield curve control."),
         ],
         "ua": [
             ("Central Bank Speech", "Виступи посадовців центробанків часто рухають ринки через натяки на політику."),
             ("FOMC Statement", "Основний канал комунікації ФРС США — містить позицію щодо ставок і ризиків."),
             ("ECB/BOE/BOJ Decision", "Рішення головних центробанків світу, що задають загальний ринковий тон."),
+            ("RBA Gov Bullock Speaks", "Виступ голови Резервного банку Австралії; може сигналізувати про перспективи ставок для AUD."),
+            ("RBNZ Gov Hawkesby Speaks", "Виступ посадовця Резервного банку Нової Зеландії; дає уявлення про напрямок політики для NZD."),
+            ("BOC Monetary Policy Report", "Детальний економічний прогноз Банку Канади; формує очікування щодо ставок."),
+            ("BOC Press Conference", "Сесія запитань після рішення Банку Канади; прояснює позицію політики для CAD."),
+            ("BOJ Outlook Report", "Прогнозна економічна оцінка Банку Японії; ключовий документ для трейдерів JPY."),
+            ("BOJ Press Conference", "Заяви голови після засідання; розкривають погляд БЯ на ставки та контроль кривої дохідності."),
         ],
     },
 
@@ -301,13 +294,33 @@ TOPIC_EXPLAINERS = {
     "misc": {
         "en": [
             ("Consumer Confidence", "Measures household optimism about income and jobs; often leads spending trends."),
-            ("Business Confidence", "Firms’ outlook on sales and investment; can signal economic turning points."),
+            ("Business Confidence", "Firms' outlook on sales and investment; can signal economic turning points."),
             ("Leading Index", "Composite forward-looking indicator summarising expected growth direction."),
+            ("Budget Balance", "Government revenue minus spending; deficits can influence fiscal policy and bond yields."),
+            ("M3 Money Supply", "Broad measure of money in circulation; tracks liquidity and potential inflation pressures."),
+            ("M4 Money Supply", "Even broader money aggregate including near-cash assets; used mainly in the UK."),
+            ("Private Loans", "Lending to households and businesses; signals credit growth and economic expansion."),
+            ("Net Lending to Individuals", "Change in consumer borrowing; reflects household spending capacity and confidence."),
+            ("ifo Business Climate", "German survey of business sentiment; leading indicator for Eurozone's largest economy."),
+            ("KOF Economic Barometer", "Swiss forward-looking indicator; predicts Swiss GDP trends and CHF direction."),
+            ("UBS Economic Expectations", "Swiss bank's survey of economic outlook; moves CHF when diverging from consensus."),
+            ("CBI Realized Sales", "UK retail sales survey from Confederation of British Industry; early gauge for GBP retail data."),
+            ("International Reserves", "Central bank holdings of foreign currencies and gold; reflects policy capacity and FX intervention."),
         ],
         "ua": [
             ("Consumer Confidence", "Відображає впевненість домогосподарств у доходах та роботі — випереджає витратні тренди."),
             ("Business Confidence", "Оцінює настрої бізнесу щодо продажів і інвестицій; часто сигналізує про поворотні точки."),
             ("Leading Index", "Композитний індикатор, що прогнозує напрямок економічного зростання."),
+            ("Budget Balance", "Різниця між доходами та видатками уряду; дефіцити впливають на фіскальну політику та дохідність облігацій."),
+            ("M3 Money Supply", "Широкий показник грошей в обігу; відстежує ліквідність і потенційний інфляційний тиск."),
+            ("M4 Money Supply", "Ще ширший грошовий агрегат з майже-готівковими активами; використовується головним чином у Великобританії."),
+            ("Private Loans", "Кредитування домогосподарств та бізнесу; сигналізує про кредитне зростання та економічне розширення."),
+            ("Net Lending to Individuals", "Зміна споживчих позик; відображає купівельну спроможність та впевненість домогосподарств."),
+            ("ifo Business Climate", "Німецьке опитування ділових настроїв; випереджаючий індикатор для найбільшої економіки Єврозони."),
+            ("KOF Economic Barometer", "Швейцарський випереджаючий індикатор; прогнозує тренди ВВП Швейцарії та напрямок CHF."),
+            ("UBS Economic Expectations", "Опитування економічних очікувань від швейцарського банку; рухає CHF при розбіжності з консенсусом."),
+            ("CBI Realized Sales", "Опитування роздрібних продажів у Великобританії від CBI; ранній індикатор для GBP роздрібних даних."),
+            ("International Reserves", "Запаси центробанків у іноземних валютах та золоті; відображає можливості політики та валютних інтервенцій."),
         ],
     },
 

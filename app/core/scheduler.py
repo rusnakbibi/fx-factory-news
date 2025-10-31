@@ -1,15 +1,15 @@
-# app/scheduler.py
+# app/core/scheduler.py
 import asyncio
 import logging
 from datetime import datetime, timedelta
 from aiogram import Bot
 
-from .config import LOCAL_TZ, DEFAULT_ALERT_MINUTES, POLL_INTERVAL_SECONDS, UTC
-from .db import get_all_subs, mark_sent, was_sent
-from .ff_client import fetch_calendar
-from .filters import filter_events
-from .formatting import event_to_text, event_hash
-from .utils import csv_to_list, chunk
+from ..config.settings import LOCAL_TZ, DEFAULT_ALERT_MINUTES, POLL_INTERVAL_SECONDS, UTC
+from .database import get_all_subs, mark_sent, was_sent
+from ..services.forex_client import fetch_calendar
+from ..ui.filters import filter_events
+from ..ui.formatting import event_to_text, event_hash
+from ..utils.helpers import csv_to_list, chunk
 
 log = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ async def scheduler(bot: Bot):
                                 try:
                                     await bot.send_message(
                                         out_chat,
-                                        event_to_text(ev, LOCAL_TZ),
+                                        event_to_text(ev, LOCAL_TZ, lang_mode),
                                         parse_mode="HTML",
                                         disable_web_page_preview=True,
                                     )
@@ -78,14 +78,14 @@ async def scheduler(bot: Bot):
                             start = now_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
                             end = start + timedelta(days=1)
                             todays = [e for e in cached if start <= e.date < end]
-                            cats = csv_to_list(subs.get("categories_filter", ""))
+                            cats = csv_to_list(sub.get("categories_filter", ""))
                             filtered = filter_events(todays, impacts, countries, cats)
                             if filtered:
                                 for ch in chunk(filtered, 8):
                                     try:
                                         await bot.send_message(
                                             out_chat,
-                                            "\n\n".join(event_to_text(e, LOCAL_TZ) for e in ch),
+                                            "\n\n".join(event_to_text(e, LOCAL_TZ, lang_mode) for e in ch),
                                             parse_mode="HTML",
                                             disable_web_page_preview=True,
                                         )
@@ -106,7 +106,7 @@ async def scheduler(bot: Bot):
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
     except asyncio.CancelledError:
-        # М’який вихід при Ctrl+C / SIGTERM
+        # М'який вихід при Ctrl+C / SIGTERM
         log.info("scheduler: cancellation received, exiting loop gracefully.")
         return
     finally:

@@ -1,4 +1,4 @@
-# app/db.py
+# app/core/database.py
 from __future__ import annotations
 
 import os
@@ -61,18 +61,59 @@ def _ensure_column_categories_filter_sqlite(conn):
         if "duplicate column" not in str(e).lower():
             raise
 
+def _ensure_metals_columns_pg(conn):
+    """Додає колонки metals_impact_filter та metals_countries_filter (PostgreSQL)."""
+    with conn.cursor() as cur:
+        cur.execute("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name='subscriptions' AND column_name='metals_impact_filter'
+            ) THEN
+                ALTER TABLE subscriptions ADD COLUMN metals_impact_filter TEXT DEFAULT '';
+            END IF;
+            
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name='subscriptions' AND column_name='metals_countries_filter'
+            ) THEN
+                ALTER TABLE subscriptions ADD COLUMN metals_countries_filter TEXT DEFAULT '';
+            END IF;
+        END$$;
+        """)
+        conn.commit()
+
+def _ensure_metals_columns_sqlite(conn):
+    """Додає колонки metals_impact_filter та metals_countries_filter (SQLite)."""
+    try:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN metals_impact_filter TEXT DEFAULT ''")
+    except Exception as e:
+        if "duplicate column" not in str(e).lower():
+            pass  # ignore if already exists
+    
+    try:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN metals_countries_filter TEXT DEFAULT ''")
+    except Exception as e:
+        if "duplicate column" not in str(e).lower():
+            pass  # ignore if already exists
+
 # ---------- schema (both backends) ----------
 
 DDL_SUBS = """
 CREATE TABLE IF NOT EXISTS subscriptions (
-  user_id          BIGINT NOT NULL,
-  chat_id          BIGINT NOT NULL,
-  impact_filter    TEXT   NOT NULL DEFAULT 'High,Medium',
-  countries_filter TEXT   NOT NULL DEFAULT '',
-  alert_minutes    INTEGER NOT NULL DEFAULT 30,
-  daily_time       TEXT   NOT NULL DEFAULT '09:00',
-  lang_mode        TEXT   NOT NULL DEFAULT 'en',
-  out_chat_id      BIGINT,
+  user_id                BIGINT NOT NULL,
+  chat_id                BIGINT NOT NULL,
+  impact_filter          TEXT   NOT NULL DEFAULT 'High,Medium',
+  countries_filter       TEXT   NOT NULL DEFAULT '',
+  alert_minutes          INTEGER NOT NULL DEFAULT 30,
+  daily_time             TEXT   NOT NULL DEFAULT '09:00',
+  lang_mode              TEXT   NOT NULL DEFAULT 'en',
+  out_chat_id            BIGINT,
+  metals_impact_filter   TEXT   NOT NULL DEFAULT '',
+  metals_countries_filter TEXT  NOT NULL DEFAULT '',
   PRIMARY KEY (user_id, chat_id)
 );
 """
@@ -103,8 +144,9 @@ def _init_sqlite(path: str = "bot.db"):
     cur.execute(DDL_SENT)
     cur.execute(DDL_CACHE)
     cur.close()
-    # ensure extra column (SQLite)
+    # ensure extra columns (SQLite)
     _ensure_column_categories_filter_sqlite(conn)
+    _ensure_metals_columns_sqlite(conn)
     return conn
 
 def _init_pg(dsn: str):
@@ -112,14 +154,16 @@ def _init_pg(dsn: str):
     with conn.cursor() as cur:
         cur.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
-          user_id          BIGINT NOT NULL,
-          chat_id          BIGINT NOT NULL,
-          impact_filter    TEXT   NOT NULL DEFAULT 'High,Medium',
-          countries_filter TEXT   NOT NULL DEFAULT '',
-          alert_minutes    INTEGER NOT NULL DEFAULT 30,
-          daily_time       TEXT   NOT NULL DEFAULT '09:00',
-          lang_mode        TEXT   NOT NULL DEFAULT 'en',
-          out_chat_id      BIGINT,
+          user_id                BIGINT NOT NULL,
+          chat_id                BIGINT NOT NULL,
+          impact_filter          TEXT   NOT NULL DEFAULT 'High,Medium',
+          countries_filter       TEXT   NOT NULL DEFAULT '',
+          alert_minutes          INTEGER NOT NULL DEFAULT 30,
+          daily_time             TEXT   NOT NULL DEFAULT '09:00',
+          lang_mode              TEXT   NOT NULL DEFAULT 'en',
+          out_chat_id            BIGINT,
+          metals_impact_filter   TEXT   NOT NULL DEFAULT '',
+          metals_countries_filter TEXT  NOT NULL DEFAULT '',
           PRIMARY KEY (user_id, chat_id)
         );
         """)
@@ -139,8 +183,9 @@ def _init_pg(dsn: str):
           expires_at TIMESTAMPTZ NOT NULL
         );
         """)
-    # ensure extra column (PostgreSQL)
+    # ensure extra columns (PostgreSQL)
     _ensure_column_categories_filter_pg(conn)
+    _ensure_metals_columns_pg(conn)
     return conn
 
 # ---------- open global connection ----------

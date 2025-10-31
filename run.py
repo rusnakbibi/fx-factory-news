@@ -8,10 +8,8 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 from aiogram.exceptions import TelegramConflictError
-from app.config import BOT_TOKEN
-from app.bot import build_bot, build_dispatcher
-from app.scheduler import scheduler
-from app.ff_client import start_autorefresh
+from app.config.settings import BOT_TOKEN
+from app.main import build_bot, build_dispatcher
 
 import psycopg
 from contextlib import asynccontextmanager
@@ -90,22 +88,11 @@ async def main():
     # ВАЖЛИВО: і scheduler, і polling — тільки всередині локера
     try:
         async with acquire_pg_lock(DATABASE_URL, lock_key):
-            logging.info("Starting scheduler task (inside lock)…")
-            bg = asyncio.create_task(scheduler(bot))
-
-            try:
-                logging.info("Starting polling (inside lock)…")
-                await start_autorefresh()
-
-                await dp.start_polling(bot)
-            except TelegramConflictError as e:
-                logging.error(f"Polling conflict: {e}")
-                raise
-            finally:
-                logging.info("Stopping scheduler…")
-                bg.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await bg
+            logging.info("Starting polling (inside lock)…")
+            await dp.start_polling(bot)
+    except TelegramConflictError as e:
+        logging.error(f"Polling conflict: {e}")
+        raise
     finally:
         # охайно закриваємо сесію бота (інакше буде "Unclosed client session")
         with contextlib.suppress(Exception):
