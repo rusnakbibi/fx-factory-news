@@ -128,6 +128,302 @@ TOPIC_DEFS = {
     },
 }
 
+
+# ---- Metals & Commodities Topic Definitions ----
+METALS_TOPIC_DEFS = {
+    # ---------------- МЕТАЛИ ТА СИРОВИНА ----------------
+    "metals_commodities": {
+        "title": {"en": "Metals & Commodities", "ua": "Метали та товари"},
+        "blurb": {
+            "en": "Commodity inventories and metal markets — copper, oil, and other raw materials.",
+            "ua": "Запаси товарів і ринки металів — мідь, нафта та інші сировинні матеріали.",
+        },
+        "keywords": [
+            "lme copper", "crude oil", "api", "inventories",
+        ],
+    },
+    
+    # ---------------- ОБЛІГАЦІЇ ----------------
+    "bonds": {
+        "title": {"en": "Bonds & Auctions", "ua": "Облігації та аукціони"},
+        "blurb": {
+            "en": "Government bond auctions and fixed income market events.",
+            "ua": "Аукціони державних облігацій та події на ринку боргових цінних паперів.",
+        },
+        "keywords": [
+            "bond auction", "german bond", "10-y bond",
+        ],
+    },
+    
+    # ---------------- ІНДЕКСИ ЦІН ----------------
+    "metals_prices": {
+        "title": {"en": "Price Indexes", "ua": "Індекси цін"},
+        "blurb": {
+            "en": "CPI and inflation data from metals calendar sources.",
+            "ua": "Дані CPI та інфляції з джерел календаря металів.",
+        },
+        "keywords": [
+            "cpi", "flash cpi", "prelim cpi", "core cpi", "tokyo cpi", "boj core cpi",
+            "trimmed mean cpi", "import prices", "s&p/cs composite", "hpi",
+        ],
+    },
+    
+    # ---------------- ВВП ----------------
+    "metals_gdp": {
+        "title": {"en": "GDP Data", "ua": "Дані ВВП"},
+        "blurb": {
+            "en": "GDP releases and economic growth indicators from metals calendar.",
+            "ua": "Випуски даних ВВП та індикатори економічного зростання з календаря металів.",
+        },
+        "keywords": [
+            "gdp", "flash gdp", "prelim gdp", "prelim flash gdp",
+        ],
+    },
+    
+    # ---------------- PMI ТА ВИРОБНИЦТВО ----------------
+    "metals_production": {
+        "title": {"en": "PMI & Production", "ua": "PMI та виробництво"},
+        "blurb": {
+            "en": "Manufacturing indexes and industrial production data.",
+            "ua": "Виробничі індекси та дані промислового виробництва.",
+        },
+        "keywords": [
+            "manufacturing pmi", "non-manufacturing pmi", "chicago pmi",
+            "richmond manufacturing", "prelim industrial production",
+        ],
+    },
+    
+    # ---------------- ЦЕНТРОБАНКИ ----------------
+    "metals_central_banks": {
+        "title": {"en": "Central Banks", "ua": "Центробанки"},
+        "blurb": {
+            "en": "Central bank decisions, speeches, and policy statements.",
+            "ua": "Рішення центробанків, виступи та заяви щодо політики.",
+        },
+        "keywords": [
+            "boj outlook", "boj press conference", "boj policy rate",
+            "monetary policy statement", "main refinancing rate", "ecb press conference",
+            "fomc statement", "federal funds rate", "fomc press conference",
+            "fomc member", "bowman", "logan", "bostic", "hammack",
+            "rba gov bullock", "rbnz gov hawkesby",
+            "boc monetary policy", "boc rate statement", "boc press conference",
+            "overnight rate",
+        ],
+    },
+    
+    # ---------------- ІНШІ ПОКАЗНИКИ ----------------
+    "metals_indicators": {
+        "title": {"en": "Economic Indicators", "ua": "Економічні показники"},
+        "blurb": {
+            "en": "Money supply, confidence indexes, and other economic metrics.",
+            "ua": "Грошова маса, індекси впевненості та інші економічні показники.",
+        },
+        "keywords": [
+            "kof economic barometer", "international reserves",
+            "m3 money supply", "m4 money supply", "ifo business climate",
+            "trade balance", "cb leading index", "cb consumer confidence",
+            "pending home sales", "unemployment rate", "gov budget balance",
+        ],
+    },
+    
+    # ---------------- НЕЙТРАЛЬНІ ----------------
+    "metals_neutral": {
+        "title": {"en": "General Events", "ua": "Загальні події"},
+        "blurb": {
+            "en": "Non-economic events affecting market schedules.",
+            "ua": "Неекономічні події, що впливають на графік ринку.",
+        },
+        "keywords": [
+            "daylight saving time", "time shift",
+        ],
+    },
+}
+
+
+# ---- Metals & Commodities Topic Explainers ----
+METALS_TOPIC_EXPLAINERS = {
+    # ---------------- МЕТАЛИ ТА СИРОВИНА ----------------
+    "metals_commodities": {
+        "en": [
+            ("LME Copper Inventories", "London Metal Exchange copper stocks; indicator of global industrial demand and supply conditions."),
+            ("Crude Oil Inventories", "U.S. weekly oil stockpiles; affects energy prices, inflation, and USD-CAD movements."),
+            ("API Weekly Statistical Bulletin", "American Petroleum Institute's oil inventory data; precedes official EIA release."),
+        ],
+        "ua": [
+            ("LME Copper Inventories", "Запаси міді на Лондонській біржі металів; індикатор глобального промислового попиту та умов постачання."),
+            ("Crude Oil Inventories", "Тижневі запаси нафти в США; впливає на ціни на енергоносії, інфляцію та рух USD-CAD."),
+            ("API Weekly Statistical Bulletin", "Дані API про запаси нафти; передує офіційному звіту EIA."),
+        ],
+    },
+    
+    # ---------------- ОБЛІГАЦІЇ ----------------
+    "bonds": {
+        "en": [
+            ("German 10-y Bond Auction", "Sale of German government bonds; influences EUR yields and borrowing costs across Eurozone."),
+        ],
+        "ua": [
+            ("German 10-y Bond Auction", "Продаж німецьких державних облігацій; впливає на дохідність EUR та вартість позик у Єврозоні."),
+        ],
+    },
+    
+    # ---------------- ІНДЕКСИ ЦІН ----------------
+    "metals_prices": {
+        "en": [
+            ("CPI y/y", "Year-over-year consumer price change; key inflation gauge for monetary policy."),
+            ("CPI q/q", "Quarterly consumer price change; common in Australia and New Zealand."),
+            ("Flash CPI y/y", "Preliminary inflation estimate; early release moves markets sharply."),
+            ("CPI Flash Estimate y/y", "Preliminary year-over-year inflation estimate; early Eurozone release with high market impact."),
+            ("Core CPI Flash Estimate", "Excluding food and energy; shows underlying inflation trends."),
+            ("Core CPI Flash Estimate y/y", "Year-over-year core inflation flash; excludes volatile items, reveals policy-relevant price pressure."),
+            ("Prelim CPI m/m", "First estimate of monthly price changes; subject to revisions."),
+            ("Tokyo Core CPI", "Excludes fresh food; early indicator for Japan's national inflation."),
+            ("BOJ Core CPI", "Bank of Japan's preferred inflation measure excluding food and energy."),
+            ("Trimmed Mean CPI", "Statistical measure removing extreme price changes; smooths volatility."),
+            ("Import Prices", "Cost of imported goods; reflects external price pressures and FX effects."),
+            ("S&P/CS Composite-20 HPI", "Home price index for 20 major U.S. cities; housing market strength indicator."),
+        ],
+        "ua": [
+            ("CPI y/y", "Зміна споживчих цін за рік; ключовий показник інфляції для монетарної політики."),
+            ("CPI q/q", "Квартальна зміна споживчих цін; поширена в Австралії та Новій Зеландії."),
+            ("Flash CPI y/y", "Попередня оцінка інфляції; ранній випуск сильно рухає ринки."),
+            ("CPI Flash Estimate y/y", "Попередня річна оцінка інфляції; ранній випуск для Єврозони з високим ринковим впливом."),
+            ("Core CPI Flash Estimate", "Без їжі та енергії; показує базові інфляційні тренди."),
+            ("Core CPI Flash Estimate y/y", "Річна експрес-оцінка базової інфляції; без волатильних складових, показує ціновий тиск для політики."),
+            ("Prelim CPI m/m", "Перша оцінка місячних цінових змін; підлягає ревізіям."),
+            ("Tokyo Core CPI", "Без свіжої їжі; ранній індикатор національної інфляції Японії."),
+            ("BOJ Core CPI", "Пріоритетний показник інфляції Банку Японії без їжі та енергії."),
+            ("Trimmed Mean CPI", "Статистична міра, що виключає екстремальні цінові зміни; згладжує волатильність."),
+            ("Import Prices", "Вартість імпортних товарів; відображає зовнішній ціновий тиск та ефекти валютного курсу."),
+            ("S&P/CS Composite-20 HPI", "Індекс цін на житло для 20 великих міст США; індикатор сили ринку нерухомості."),
+        ],
+    },
+    
+    # ---------------- ВВП ----------------
+    "metals_gdp": {
+        "en": [
+            ("GDP m/m", "Monthly GDP change; high-frequency growth indicator."),
+            ("Flash GDP q/q", "Preliminary quarterly GDP estimate; first look at economic performance."),
+            ("Prelim GDP q/q", "Early GDP reading; most market-sensitive, often revised."),
+            ("Prelim Flash GDP q/q", "Very early GDP estimate; combines preliminary and flash methodologies."),
+            ("Prelim GDP y/y", "Preliminary year-over-year GDP; smooths out seasonal variations."),
+        ],
+        "ua": [
+            ("GDP m/m", "Місячна зміна ВВП; високочастотний індикатор зростання."),
+            ("Flash GDP q/q", "Попередня квартальна оцінка ВВП; перший погляд на економічні показники."),
+            ("Prelim GDP q/q", "Рання оцінка ВВП; найчутливіша для ринку, часто переглядається."),
+            ("Prelim Flash GDP q/q", "Дуже рання оцінка ВВП; поєднує попередню та експрес-методологію."),
+            ("Prelim GDP y/y", "Попередній ВВП за рік; згладжує сезонні коливання."),
+        ],
+    },
+    
+    # ---------------- PMI ТА ВИРОБНИЦТВО ----------------
+    "metals_production": {
+        "en": [
+            ("Manufacturing PMI", "Manufacturers survey; above 50 signals expansion, below 50 contraction."),
+            ("Non-Manufacturing PMI", "Services sector activity index; dominant in modern economies."),
+            ("Chicago PMI", "Chicago-area business conditions; regional manufacturing gauge."),
+            ("Richmond Manufacturing Index", "Richmond Fed's manufacturing survey; early production trends indicator."),
+            ("Prelim Industrial Production", "Early estimate of factory and energy output; reflects industrial cycle."),
+        ],
+        "ua": [
+            ("Manufacturing PMI", "Опитування виробників; понад 50 сигналізує розширення, менше 50 — скорочення."),
+            ("Non-Manufacturing PMI", "Індекс активності сектору послуг; домінує в сучасних економіках."),
+            ("Chicago PMI", "Ділові умови в районі Чикаго; регіональний виробничий індикатор."),
+            ("Richmond Manufacturing Index", "Виробниче опитування ФРС Річмонда; ранній індикатор виробничих трендів."),
+            ("Prelim Industrial Production", "Рання оцінка обсягів заводів і енергетики; відображає промисловий цикл."),
+        ],
+    },
+    
+    # ---------------- ЦЕНТРОБАНКИ ----------------
+    "metals_central_banks": {
+        "en": [
+            ("BOJ Outlook Report", "Bank of Japan's economic forecast; key for JPY traders and policy expectations."),
+            ("BOJ Press Conference", "Governor's remarks after policy meeting; reveals BOJ's policy stance."),
+            ("BOJ Policy Rate", "Bank of Japan's benchmark rate; historically near zero or negative."),
+            ("Monetary Policy Statement", "Official policy text; explains rate decisions and economic outlook."),
+            ("Main Refinancing Rate", "ECB's key rate for Eurozone banks; main EUR monetary policy tool."),
+            ("ECB Press Conference", "ECB President's Q&A; offers insight into European monetary policy."),
+            ("FOMC Statement", "Federal Reserve's policy announcement; outlines U.S. rate stance and risks."),
+            ("Federal Funds Rate", "Fed's target for overnight bank lending; primary U.S. inflation control tool."),
+            ("FOMC Press Conference", "Fed Chair's remarks; provides forward guidance on policy direction."),
+            ("FOMC Member Speaks", "Speeches by Fed officials; can signal policy shifts or confirm current stance."),
+            ("FOMC Member Bowman Speaks", "Fed Governor Michelle Bowman's remarks; provides insight into FOMC voting member views."),
+            ("FOMC Member Logan Speaks", "Fed official Lorie Logan's speech; offers perspective on Fed policy direction."),
+            ("FOMC Member Bostic Speaks", "Atlanta Fed President Raphael Bostic's remarks; regional Fed voice on monetary policy."),
+            ("FOMC Member Hammack Speaks", "Fed official Beth Hammack's speech; contributes to understanding of Fed policy stance."),
+            ("RBA Gov Bullock Speaks", "Reserve Bank of Australia Governor's speech; signals AUD rate outlook."),
+            ("RBNZ Gov Hawkesby Speaks", "RBNZ official's remarks; provides NZD policy direction insights."),
+            ("BOC Monetary Policy Report", "Bank of Canada's detailed forecast; guides CAD rate expectations."),
+            ("BOC Rate Statement", "Bank of Canada's policy announcement; immediate CAD market mover."),
+            ("BOC Press Conference", "BOC officials' Q&A; clarifies policy stance for Canadian dollar."),
+            ("Overnight Rate", "Central bank rate for overnight lending; set by BOC and others."),
+        ],
+        "ua": [
+            ("BOJ Outlook Report", "Економічний прогноз Банку Японії; ключовий для трейдерів JPY та очікувань політики."),
+            ("BOJ Press Conference", "Заяви голови після засідання; розкривають позицію політики БЯ."),
+            ("BOJ Policy Rate", "Базова ставка Банку Японії; історично близька до нуля або негативна."),
+            ("Monetary Policy Statement", "Офіційний текст політики; пояснює рішення щодо ставок та економічний прогноз."),
+            ("Main Refinancing Rate", "Ключова ставка ЄЦБ для банків Єврозони; основний інструмент монетарної політики EUR."),
+            ("ECB Press Conference", "Запитання та відповіді президента ЄЦБ; дає уявлення про європейську монетарну політику."),
+            ("FOMC Statement", "Оголошення політики Федрезерву; окреслює позицію США щодо ставок та ризиків."),
+            ("Federal Funds Rate", "Цільова ставка ФРС для міжбанківського кредитування овернайт; основний інструмент контролю інфляції США."),
+            ("FOMC Press Conference", "Заяви голови ФРС; надає орієнтири щодо напрямку політики."),
+            ("FOMC Member Speaks", "Виступи посадовців ФРС; можуть сигналізувати зміни політики або підтверджувати поточну позицію."),
+            ("FOMC Member Bowman Speaks", "Заяви голови ФРС Мішель Боумен; надає уявлення про погляди голосуючого члена FOMC."),
+            ("FOMC Member Logan Speaks", "Виступ посадовця ФРС Лорі Логан; пропонує перспективу щодо напрямку політики ФРС."),
+            ("FOMC Member Bostic Speaks", "Заяви президента ФРС Атланти Рафаеля Бостіка; регіональний голос ФРС щодо монетарної політики."),
+            ("FOMC Member Hammack Speaks", "Виступ посадовця ФРС Бет Хаммак; сприяє розумінню позиції політики ФРС."),
+            ("RBA Gov Bullock Speaks", "Виступ голови Резервного банку Австралії; сигналізує про перспективи ставок AUD."),
+            ("RBNZ Gov Hawkesby Speaks", "Заяви посадовця РБНЗ; надає уявлення про напрямок політики NZD."),
+            ("BOC Monetary Policy Report", "Детальний прогноз Банку Канади; формує очікування щодо ставок CAD."),
+            ("BOC Rate Statement", "Оголошення політики Банку Канади; миттєво рухає ринок CAD."),
+            ("BOC Press Conference", "Запитання та відповіді посадовців БК; прояснює позицію політики для канадського долара."),
+            ("Overnight Rate", "Ставка центробанку для кредитування овернайт; встановлюється БК та іншими."),
+        ],
+    },
+    
+    # ---------------- ІНШІ ПОКАЗНИКИ ----------------
+    "metals_indicators": {
+        "en": [
+            ("KOF Economic Barometer", "Swiss forward-looking indicator; predicts Swiss GDP and CHF trends."),
+            ("International Reserves", "Central bank FX and gold holdings; reflects intervention capacity."),
+            ("M3 Money Supply", "Broad money measure; tracks liquidity and inflation pressures."),
+            ("M4 Money Supply", "Even broader money aggregate; includes near-cash assets, mainly UK."),
+            ("ifo Business Climate", "German business sentiment survey; leading Eurozone indicator."),
+            ("Trade Balance", "Exports minus imports; surpluses strengthen currency, deficits weaken."),
+            ("CB Leading Index", "Conference Board's forward-looking indicator; signals economic direction."),
+            ("CB Consumer Confidence", "Household optimism measure; leads spending and growth trends."),
+            ("Pending Home Sales", "Signed but not closed home contracts; leading housing market indicator."),
+            ("Unemployment Rate", "Jobless percentage of workforce; declines signal economic strength."),
+            ("Gov Budget Balance", "Government revenue minus spending; affects fiscal policy and yields."),
+        ],
+        "ua": [
+            ("KOF Economic Barometer", "Швейцарський випереджаючий індикатор; прогнозує ВВП Швейцарії та тренди CHF."),
+            ("International Reserves", "Валютні та золоті запаси центробанку; відображає можливості інтервенції."),
+            ("M3 Money Supply", "Широкий грошовий показник; відстежує ліквідність та інфляційний тиск."),
+            ("M4 Money Supply", "Ще ширший грошовий агрегат; включає майже-готівкові активи, переважно у Великобританії."),
+            ("ifo Business Climate", "Опитування німецьких ділових настроїв; випереджаючий індикатор Єврозони."),
+            ("Trade Balance", "Експорт мінус імпорт; профіцит зміцнює валюту, дефіцит послаблює."),
+            ("CB Leading Index", "Випереджаючий індикатор Conference Board; сигналізує про економічний напрямок."),
+            ("CB Consumer Confidence", "Міра оптимізму домогосподарств; випереджає тренди витрат і зростання."),
+            ("Pending Home Sales", "Підписані, але не закриті контракти на житло; випереджаючий індикатор ринку нерухомості."),
+            ("Unemployment Rate", "Відсоток безробітних у робочій силі; зниження сигналізує про економічну силу."),
+            ("Gov Budget Balance", "Доходи мінус видатки уряду; впливає на фіскальну політику та дохідність."),
+        ],
+    },
+    
+    # ---------------- НЕЙТРАЛЬНІ ----------------
+    "metals_neutral": {
+        "en": [
+            ("Daylight Saving Time Shift", "Seasonal time change; affects trading session overlaps and market hours."),
+        ],
+        "ua": [
+            ("Daylight Saving Time Shift", "Сезонна зміна часу; впливає на перекриття торгових сесій та години роботи ринку."),
+        ],
+    },
+}
+
+
 # ---- Per-topic explainers (EN default, UA if lang_mode == "ua") ----
 TOPIC_EXPLAINERS = {
     # ---------------- ІНДЕКСИ ЦІН ----------------

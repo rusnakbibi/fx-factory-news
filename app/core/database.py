@@ -62,7 +62,7 @@ def _ensure_column_categories_filter_sqlite(conn):
             raise
 
 def _ensure_metals_columns_pg(conn):
-    """Додає колонки metals_impact_filter та metals_countries_filter (PostgreSQL)."""
+    """Додає колонки metals_impact_filter, metals_countries_filter та metals_alert_minutes (PostgreSQL)."""
     with conn.cursor() as cur:
         cur.execute("""
         DO $$
@@ -82,12 +82,20 @@ def _ensure_metals_columns_pg(conn):
             ) THEN
                 ALTER TABLE subscriptions ADD COLUMN metals_countries_filter TEXT DEFAULT '';
             END IF;
+            
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name='subscriptions' AND column_name='metals_alert_minutes'
+            ) THEN
+                ALTER TABLE subscriptions ADD COLUMN metals_alert_minutes INTEGER DEFAULT 30;
+            END IF;
         END$$;
         """)
         conn.commit()
 
 def _ensure_metals_columns_sqlite(conn):
-    """Додає колонки metals_impact_filter та metals_countries_filter (SQLite)."""
+    """Додає колонки metals_impact_filter, metals_countries_filter та metals_alert_minutes (SQLite)."""
     try:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN metals_impact_filter TEXT DEFAULT ''")
     except Exception as e:
@@ -96,6 +104,12 @@ def _ensure_metals_columns_sqlite(conn):
     
     try:
         conn.execute("ALTER TABLE subscriptions ADD COLUMN metals_countries_filter TEXT DEFAULT ''")
+    except Exception as e:
+        if "duplicate column" not in str(e).lower():
+            pass  # ignore if already exists
+    
+    try:
+        conn.execute("ALTER TABLE subscriptions ADD COLUMN metals_alert_minutes INTEGER DEFAULT 30")
     except Exception as e:
         if "duplicate column" not in str(e).lower():
             pass  # ignore if already exists
@@ -114,6 +128,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
   out_chat_id            BIGINT,
   metals_impact_filter   TEXT   NOT NULL DEFAULT '',
   metals_countries_filter TEXT  NOT NULL DEFAULT '',
+  metals_alert_minutes   INTEGER NOT NULL DEFAULT 30,
   PRIMARY KEY (user_id, chat_id)
 );
 """
@@ -164,6 +179,7 @@ def _init_pg(dsn: str):
           out_chat_id            BIGINT,
           metals_impact_filter   TEXT   NOT NULL DEFAULT '',
           metals_countries_filter TEXT  NOT NULL DEFAULT '',
+          metals_alert_minutes   INTEGER NOT NULL DEFAULT 30,
           PRIMARY KEY (user_id, chat_id)
         );
         """)

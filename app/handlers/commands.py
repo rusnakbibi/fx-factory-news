@@ -272,7 +272,7 @@ def _weekly_summary_text(events, lang: str) -> list[str]:
     highlights = upcoming[:10] if upcoming else events[:10]
 
     if highlights:
-        summary_lines.append(_t_en_ua(lang, "<b>Highlights ahead</b>:", "<b>Головні попереду</b>:"))
+        summary_lines.append(_t_en_ua(lang, "<b>Highlights ahead</b>:", "<b>Головні за цей тиждень</b>:"))
         for ev in highlights:
             summary_lines.append(_compact_event_line(ev, lang))
 

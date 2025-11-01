@@ -12,8 +12,8 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery
 
 from ..config.settings import LOCAL_TZ, UTC
-from ..config.topics import TOPIC_DEFS, TOPIC_EXPLAINERS
-from ..services.translator import UA_DICT
+from ..config.topics import TOPIC_DEFS, TOPIC_EXPLAINERS, METALS_TOPIC_DEFS, METALS_TOPIC_EXPLAINERS
+from ..services.translator import UA_DICT, METALS_DICT
 from ..services.forex_client import get_events_thisweek_cached as fetch_calendar
 from ..ui.filters import filter_events, normalize_impact
 from ..ui.formatting import event_to_text
@@ -27,7 +27,10 @@ from ..ui.keyboards import (
     topics_kb,
     back_to_topics_kb,
     root_menu_kb, 
-    metals_main_menu_kb
+    metals_main_menu_kb,
+    metals_topics_kb,
+    back_to_metals_topics_kb,
+    metals_alerts_presets_kb
 )
 from ..core.database import ensure_sub, get_sub, unsubscribe, set_sub
 from ..services.metals_parser import (
@@ -261,7 +264,7 @@ def _weekly_summary_text(events, lang: str) -> list[str]:
     highlights = upcoming[:10] if upcoming else events[:10]
 
     if highlights:
-        summary_lines.append(_t_en_ua(lang, "<b>Highlights ahead</b>:", "<b>Головні попереду</b>:"))
+        summary_lines.append(_t_en_ua(lang, "<b>Highlights ahead</b>:", "<b>Головні за цей тиждень</b>:"))
         for ev in highlights:
             summary_lines.append(_compact_event_line(ev, lang))
 
@@ -755,8 +758,13 @@ async def cb_weekly(c: CallbackQuery):
     if not subs:
         ensure_sub(c.from_user.id, c.message.chat.id)
         subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
-    await c.answer(_t_en_ua(_lang(subs), "Building summary…", "Формую підсумок…"), show_alert=False)
+    lang = _lang(subs)
+    await c.answer(_t_en_ua(lang, "Building summary…", "Формую підсумок…"), show_alert=False)
     await _send_weekly_summary(c.message, subs)
+    await c.message.answer(
+        _t_en_ua(lang, "Back to menu:", "Назад до меню:"),
+        reply_markup=main_menu_kb(lang=lang, back_to_root=True)
+    )
 
 @router.callback_query(F.data == "menu:tutorial")
 async def cb_tutorial(c: CallbackQuery):
@@ -825,6 +833,7 @@ async def cb_metals_settings(c: CallbackQuery):
     kb = metals_settings_kb(
         csv_to_list(subs.get("metals_impact_filter", "")),
         csv_to_list(subs.get("metals_countries_filter", "")),
+        int(subs.get("metals_alert_minutes", 30)),
         lang_mode=lang,
     )
     await c.message.edit_text(
@@ -832,6 +841,56 @@ async def cb_metals_settings(c: CallbackQuery):
         reply_markup=kb
     )
     await c.answer()
+
+@router.callback_query(F.data == "metals:alerts")
+async def cb_metals_alerts(c: CallbackQuery):
+    """Show metals alerts presets menu."""
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    if not subs:
+        ensure_sub(c.from_user.id, c.message.chat.id)
+        subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    cur = int(subs.get("metals_alert_minutes", 30))
+    await c.message.edit_text(
+        _t_en_ua(lang, "⏰ Metals Alert before event:", "⏰ Нагадування для металів перед подією:"),
+        reply_markup=metals_alerts_presets_kb(cur, lang=lang)
+    )
+    await c.answer()
+
+@router.callback_query(F.data.startswith("metals_al:"))
+async def cb_metals_alert_preset(c: CallbackQuery):
+    """Handle metals alert preset selection (from settings or standalone alerts page)."""
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    try:
+        val = int(c.data.split(":", 1)[1])
+    except Exception:
+        return await c.answer(_t_en_ua(lang, "Invalid value", "Некоректне значення"))
+    
+    set_sub(c.from_user.id, c.message.chat.id, metals_alert_minutes=val)
+    
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    
+    # Check if we're on settings page or standalone alerts page by looking at the message text
+    msg_text = c.message.text or ""
+    if "Settings" in msg_text or "Налаштування" in msg_text:
+        # We're in settings page - update settings keyboard
+        from ..ui.keyboards import metals_settings_kb
+        kb = metals_settings_kb(
+            csv_to_list(subs.get("metals_impact_filter", "")),
+            csv_to_list(subs.get("metals_countries_filter", "")),
+            val,
+            lang_mode=lang,
+        )
+    else:
+        # We're on standalone alerts page - update alerts keyboard
+        kb = metals_alerts_presets_kb(val, lang=lang)
+    
+    try:
+        await c.message.edit_reply_markup(reply_markup=kb)
+    except Exception:
+        pass
+    await c.answer(_t_en_ua(lang, "Alert preset saved", "Нагадування збережено"))
 
 # ---------- METALS FILTER HANDLERS ----------
 
@@ -853,6 +912,7 @@ async def cb_metals_impact(c: CallbackQuery):
     kb = metals_settings_kb(
         csv_to_list(subs.get("metals_impact_filter", "")),
         csv_to_list(subs.get("metals_countries_filter", "")),
+        int(subs.get("metals_alert_minutes", 30)),
         lang_mode=lang,
     )
     await c.message.edit_reply_markup(reply_markup=kb)
@@ -876,6 +936,7 @@ async def cb_metals_country(c: CallbackQuery):
     kb = metals_settings_kb(
         csv_to_list(subs.get("metals_impact_filter", "")),
         csv_to_list(subs.get("metals_countries_filter", "")),
+        int(subs.get("metals_alert_minutes", 30)),
         lang_mode=lang,
     )
     await c.message.edit_reply_markup(reply_markup=kb)
@@ -894,6 +955,7 @@ async def cb_metals_lang(c: CallbackQuery):
     kb = metals_settings_kb(
         csv_to_list(subs.get("metals_impact_filter", "")),
         csv_to_list(subs.get("metals_countries_filter", "")),
+        int(subs.get("metals_alert_minutes", 30)),
         lang_mode=lang,
     )
     await c.message.edit_text(
@@ -910,7 +972,7 @@ async def cb_metals_reset(c: CallbackQuery):
     lang = _lang(subs)
     
     from ..ui.keyboards import metals_settings_kb
-    kb = metals_settings_kb([], [], lang_mode=lang)
+    kb = metals_settings_kb([], [], int(subs.get("metals_alert_minutes", 30)), lang_mode=lang)
     await c.message.edit_reply_markup(reply_markup=kb)
     await c.answer(_t_en_ua(lang, "Filters reset", "Фільтри скинуто"))
 
@@ -946,3 +1008,57 @@ async def cb_metals_thisweek(c: CallbackQuery):
         )
     except Exception:
         pass
+
+# --------------------------- Metals Topics ---------------------------
+
+@router.callback_query(F.data == "metals:topics")
+async def metals_menu_topics(c: CallbackQuery):
+    """Show metals topics menu."""
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = _lang(subs)
+    await c.message.edit_text(
+        _t_en_ua(lang, "📚 Metals Topics:", "📚 Теми Металів:"),
+        reply_markup=metals_topics_kb(lang=lang)
+    )
+    await c.answer()
+
+@router.callback_query(F.data.startswith("metals_topic:"))
+async def show_metals_topic(c: CallbackQuery):
+    """Show individual metals topic details."""
+    subs = _rowdict(get_sub(c.from_user.id, c.message.chat.id))
+    lang = subs.get("lang_mode", "en")
+    _, topic_key = c.data.split(":", 1)
+
+    td = METALS_TOPIC_DEFS.get(topic_key, {})
+    # екранізуємо заголовок та підзаголовок
+    raw_title = (td.get("title", {}) or {}).get("ua" if lang == "ua" else "en", "Topic")
+    raw_blurb = (td.get("blurb", {}) or {}).get("ua" if lang == "ua" else "en", "")
+    title = _html.escape(raw_title, quote=False)
+    blurb = _html.escape(raw_blurb, quote=False)
+
+    base_lang = "ua" if lang == "ua" else "en"
+    expl = METALS_TOPIC_EXPLAINERS.get(topic_key, {}).get(base_lang, [])
+    if not expl:
+        expl = [("—", "No explainer yet / Пояснення буде додано")]
+
+    lines = [f"📚 <b>{title}</b>", blurb, ""]
+
+    for name, desc in expl:
+        display_name = name
+        if lang == "ua":
+            ua = METALS_DICT.get(name)
+            if ua and ua != name:
+                display_name = f"{name} ({ua})"
+
+        # екрануємо
+        display_name_safe = _html.escape(display_name, quote=False)
+        desc_safe = _html.escape(desc, quote=False)
+        lines.append(f"• <b>{display_name_safe}</b>\n  {desc_safe}\n")
+
+    msg = "\n".join(lines)
+    # Обмежуємо довжину повідомлення
+    if len(msg) > 4000:
+        msg = msg[:4000] + "…"
+
+    await c.message.edit_text(msg, parse_mode="HTML", reply_markup=back_to_metals_topics_kb(lang=lang))
+    await c.answer()

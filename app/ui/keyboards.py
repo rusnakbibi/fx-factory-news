@@ -168,17 +168,21 @@ def root_menu_kb(lang: str = "en") -> InlineKeyboardMarkup:
 
 def metals_main_menu_kb(lang: str = "en", back_to_root: bool = True) -> InlineKeyboardMarkup:
     t_settings = "⚙️ Settings" if lang != "ua" else "⚙️ Налаштування"
+    t_alerts   = "⏰ Alerts" if lang != "ua" else "⏰ Нагадування"
     t_daily    = "🕰 Daily Digest" if lang != "ua" else "🕰 Щоденний дайджест"
     t_today    = "🗓 Today" if lang != "ua" else "🗓 Сьогодні"
     t_week     = "📅 This week" if lang != "ua" else "📅 Цього тижня"
+    t_topics   = "📚 Topics" if lang != "ua" else "📚 Теми"
     
     back_cb = "root:home" if back_to_root else "menu:home"
 
     kb = [
         [InlineKeyboardButton(text=t_settings, callback_data="metals:settings"),
-         InlineKeyboardButton(text=t_daily,    callback_data="metals:daily")],
+         InlineKeyboardButton(text=t_alerts,   callback_data="metals:alerts")],
+        [InlineKeyboardButton(text=t_daily,    callback_data="metals:daily")],
         [InlineKeyboardButton(text=t_today,    callback_data="metals:today"),
          InlineKeyboardButton(text=t_week,     callback_data="metals:week")],
+        [InlineKeyboardButton(text=t_topics,   callback_data="metals:topics")],
          [InlineKeyboardButton(text="⬅️ Back",  callback_data=back_cb)]
     ]
     return InlineKeyboardMarkup(inline_keyboard=kb)
@@ -295,6 +299,22 @@ def alerts_presets_kb(current_minutes: int | None = None, lang: str = "en") -> I
         ]
     )
 
+def metals_alerts_presets_kb(current_minutes: int | None = None, lang: str = "en") -> InlineKeyboardMarkup:
+    """Alerts presets keyboard for metals menu."""
+    btns = [
+        InlineKeyboardButton(
+            text=_radio(current_minutes == p) + _fmt_minutes(lang, p),
+            callback_data=f"metals_al:{p}"
+        ) for p in ALERT_PRESETS
+    ]
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            btns[0:3],
+            btns[3:6],
+            [InlineKeyboardButton(text=f"◀️ {_t(lang,'back')}", callback_data="root:metals")]
+        ]
+    )
+
 # ---------- TOPICS ----------
 def topics_kb(lang: str = "en") -> InlineKeyboardMarkup:
     if lang == "ua":
@@ -344,15 +364,71 @@ def back_to_topics_kb(lang: str = "en") -> InlineKeyboardMarkup:
         inline_keyboard=[[InlineKeyboardButton(text=_t(lang, "back_topics"), callback_data="menu:topics")]]
     )
 
+def metals_topics_kb(lang: str = "en") -> InlineKeyboardMarkup:
+    """Topics keyboard for Metals calendar."""
+    if lang == "ua":
+        rows = [
+            [
+                InlineKeyboardButton(text="🪙 Метали та товари", callback_data="metals_topic:metals_commodities"),
+                InlineKeyboardButton(text="📊 Облігації", callback_data="metals_topic:bonds"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Індекси цін", callback_data="metals_topic:metals_prices"),
+                InlineKeyboardButton(text="💹 Дані ВВП", callback_data="metals_topic:metals_gdp"),
+            ],
+            [
+                InlineKeyboardButton(text="🏭 PMI та виробництво", callback_data="metals_topic:metals_production"),
+            ],
+            [
+                InlineKeyboardButton(text="🏛 Центробанки", callback_data="metals_topic:metals_central_banks"),
+            ],
+            [
+                InlineKeyboardButton(text="📦 Економічні показники", callback_data="metals_topic:metals_indicators"),
+                InlineKeyboardButton(text="🔔 Загальні події", callback_data="metals_topic:metals_neutral"),
+            ],
+            [InlineKeyboardButton(text="◀️ Назад", callback_data="root:metals")],
+        ]
+    else:
+        rows = [
+            [
+                InlineKeyboardButton(text="🪙 Metals & Commodities", callback_data="metals_topic:metals_commodities"),
+                InlineKeyboardButton(text="📊 Bonds", callback_data="metals_topic:bonds"),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Price Indexes", callback_data="metals_topic:metals_prices"),
+                InlineKeyboardButton(text="💹 GDP Data", callback_data="metals_topic:metals_gdp"),
+            ],
+            [
+                InlineKeyboardButton(text="🏭 PMI & Production", callback_data="metals_topic:metals_production"),
+            ],
+            [
+                InlineKeyboardButton(text="🏛 Central Banks", callback_data="metals_topic:metals_central_banks"),
+            ],
+            [
+                InlineKeyboardButton(text="📦 Economic Indicators", callback_data="metals_topic:metals_indicators"),
+                InlineKeyboardButton(text="🔔 General Events", callback_data="metals_topic:metals_neutral"),
+            ],
+            [InlineKeyboardButton(text="◀️ Back", callback_data="root:metals")],
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def back_to_metals_topics_kb(lang: str = "en") -> InlineKeyboardMarkup:
+    """Back button to metals topics menu."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text=_t(lang, "back_topics"), callback_data="metals:topics")]]
+    )
+
 # ---------- METALS SETTINGS KEYBOARD ----------
 def metals_settings_kb(
     selected_impacts,
     selected_countries,
+    alert_minutes,
     lang_mode: str = "en",
 ) -> InlineKeyboardMarkup:
     """
     Settings keyboard for Metals module.
     Filters by impact and country (not currency).
+    Includes alert presets.
     """
     lang = lang_mode
 
@@ -393,6 +469,16 @@ def metals_settings_kb(
     rows.append(country_buttons[3:6])
     rows.append(country_buttons[6:9])
     rows.append(country_buttons[9:12])
+
+    # --- Alert presets (2x3 layout) ---
+    al_buttons = [
+        InlineKeyboardButton(
+            text=_radio(alert_minutes == p) + _fmt_minutes(lang, p),
+            callback_data=f"metals_al:{p}"
+        ) for p in ALERT_PRESETS
+    ]
+    rows.append(al_buttons[0:3])
+    rows.append(al_buttons[3:6])
 
     # Language row
     lang_buttons = [
